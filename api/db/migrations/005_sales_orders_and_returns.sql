@@ -1,0 +1,91 @@
+-- Sales orders (commitment before invoice); optional link when invoiced later
+CREATE TABLE IF NOT EXISTS sales_orders (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  customer_id BIGINT UNSIGNED NOT NULL,
+  order_number VARCHAR(64) NOT NULL UNIQUE,
+  status VARCHAR(40) NOT NULL DEFAULT 'OPEN',
+  order_date DATE NOT NULL,
+  subtotal DECIMAL(18,4) NOT NULL DEFAULT 0,
+  tax DECIMAL(18,4) NOT NULL DEFAULT 0,
+  total DECIMAL(18,4) NOT NULL DEFAULT 0,
+  notes TEXT DEFAULT NULL,
+  invoice_id BIGINT UNSIGNED DEFAULT NULL,
+  created_by BIGINT UNSIGNED DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_so_c FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_so_inv FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE SET NULL,
+  CONSTRAINT fk_so_user FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sales_order_lines (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sales_order_id BIGINT UNSIGNED NOT NULL,
+  item_id BIGINT UNSIGNED NOT NULL,
+  qty DECIMAL(18,4) NOT NULL,
+  unit_price DECIMAL(18,4) NOT NULL,
+  line_total DECIMAL(18,4) NOT NULL,
+  CONSTRAINT fk_sl_so FOREIGN KEY (sales_order_id) REFERENCES sales_orders (id) ON DELETE CASCADE,
+  CONSTRAINT fk_sl_item FOREIGN KEY (item_id) REFERENCES items (id) ON DELETE RESTRICT,
+  INDEX idx_sl_so (sales_order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Stock sent back to supplier (reduces on-hand qty)
+CREATE TABLE IF NOT EXISTS supplier_returns (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  supplier_id BIGINT UNSIGNED NOT NULL,
+  warehouse_id BIGINT UNSIGNED NOT NULL,
+  return_number VARCHAR(64) NOT NULL UNIQUE,
+  status VARCHAR(40) NOT NULL DEFAULT 'CONFIRMED',
+  purchase_order_id BIGINT UNSIGNED DEFAULT NULL,
+  notes TEXT DEFAULT NULL,
+  created_by BIGINT UNSIGNED DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_sr_sup FOREIGN KEY (supplier_id) REFERENCES suppliers (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_sr_wh FOREIGN KEY (warehouse_id) REFERENCES warehouses (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_sr_po FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders (id) ON DELETE SET NULL,
+  CONSTRAINT fk_sr_user FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS supplier_return_lines (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  supplier_return_id BIGINT UNSIGNED NOT NULL,
+  item_id BIGINT UNSIGNED NOT NULL,
+  qty DECIMAL(18,4) NOT NULL,
+  unit_cost DECIMAL(18,4) NOT NULL DEFAULT 0,
+  CONSTRAINT fk_srl_sr FOREIGN KEY (supplier_return_id) REFERENCES supplier_returns (id) ON DELETE CASCADE,
+  CONSTRAINT fk_srl_item FOREIGN KEY (item_id) REFERENCES items (id) ON DELETE RESTRICT,
+  INDEX idx_srl_sr (supplier_return_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Customer brought goods back — restock warehouse
+CREATE TABLE IF NOT EXISTS customer_returns (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  customer_id BIGINT UNSIGNED NOT NULL,
+  warehouse_id BIGINT UNSIGNED NOT NULL,
+  return_number VARCHAR(64) NOT NULL UNIQUE,
+  status VARCHAR(40) NOT NULL DEFAULT 'CONFIRMED',
+  invoice_id BIGINT UNSIGNED DEFAULT NULL,
+  notes TEXT DEFAULT NULL,
+  created_by BIGINT UNSIGNED DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_cr_cust FOREIGN KEY (customer_id) REFERENCES customers (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_cr_wh FOREIGN KEY (warehouse_id) REFERENCES warehouses (id) ON DELETE RESTRICT,
+  CONSTRAINT fk_cr_inv FOREIGN KEY (invoice_id) REFERENCES invoices (id) ON DELETE SET NULL,
+  CONSTRAINT fk_cr_user FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS customer_return_lines (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  customer_return_id BIGINT UNSIGNED NOT NULL,
+  invoice_line_id BIGINT UNSIGNED DEFAULT NULL,
+  item_id BIGINT UNSIGNED NOT NULL,
+  qty DECIMAL(18,4) NOT NULL,
+  unit_price DECIMAL(18,4) NOT NULL DEFAULT 0,
+  CONSTRAINT fk_crl_cr FOREIGN KEY (customer_return_id) REFERENCES customer_returns (id) ON DELETE CASCADE,
+  CONSTRAINT fk_crl_il FOREIGN KEY (invoice_line_id) REFERENCES invoice_lines (id) ON DELETE SET NULL,
+  CONSTRAINT fk_crl_item FOREIGN KEY (item_id) REFERENCES items (id) ON DELETE RESTRICT,
+  INDEX idx_crl_cr (customer_return_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
