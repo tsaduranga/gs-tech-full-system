@@ -31,7 +31,7 @@ export function createApp() {
   app.use(helmet());
   app.use(
     cors({
-      origin: env.CORS_ORIGIN.split(",").map((s) => s.trim()),
+      origin: env.CORS_ORIGIN.split(",").map((s) => s.trim().replace(/\/$/, "")),
       credentials: true,
     })
   );

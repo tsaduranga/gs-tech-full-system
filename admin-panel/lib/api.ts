@@ -76,7 +76,14 @@ export async function apiJson<T>(
   if (useAuth && access) headers.set("Authorization", `Bearer ${access}`);
 
   const url = `${getApiBase()}${path.startsWith("/") ? "" : "/"}${path}`;
-  let res = await fetch(url, { ...init, headers });
+  let res: Response;
+  try {
+    res = await fetch(url, { ...init, headers });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Could not reach the API";
+    return { ok: false, status: 0, data: null, error: message };
+  }
 
   if (res.status === 401 && useAuth) {
     const refreshed = await tryRefresh();
@@ -86,7 +93,13 @@ export async function apiJson<T>(
         h2.set("Content-Type", "application/json");
       const a2 = getStoredAccess();
       if (a2) h2.set("Authorization", `Bearer ${a2}`);
-      res = await fetch(url, { ...init, headers: h2 });
+      try {
+        res = await fetch(url, { ...init, headers: h2 });
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Could not reach the API";
+        return { ok: false, status: 0, data: null, error: message };
+      }
     }
   }
 

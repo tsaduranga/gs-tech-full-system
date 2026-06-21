@@ -30,23 +30,26 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const res = await apiJson<{
-      accessToken: string;
-      refreshToken: string;
-      user: { id: number; username: string };
-    }>("/auth/login", {
-      method: "POST",
-      auth: false,
-      body: JSON.stringify({ username, password }),
-    });
-    setLoading(false);
-    if (!res.ok || !res.data) {
-      setError(res.error ?? "Login failed");
-      return;
+    try {
+      const res = await apiJson<{
+        accessToken: string;
+        refreshToken: string;
+        user: { id: number; username: string };
+      }>("/auth/login", {
+        method: "POST",
+        auth: false,
+        body: JSON.stringify({ username, password }),
+      });
+      if (!res.ok || !res.data) {
+        setError(res.error ?? "Login failed");
+        return;
+      }
+      setSessionTokens(res.data.accessToken, res.data.refreshToken);
+      setStoredUser(res.data.user);
+      router.replace("/dashboard");
+    } finally {
+      setLoading(false);
     }
-    setSessionTokens(res.data.accessToken, res.data.refreshToken);
-    setStoredUser(res.data.user);
-    router.replace("/dashboard");
   }
 
   return (
