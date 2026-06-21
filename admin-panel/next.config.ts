@@ -12,6 +12,7 @@ const allowedDevOrigins =
 
 const nextConfig: NextConfig = {
   // Do not set turbopack.root here — it breaks @import "tailwindcss" resolution.
+  turbopack: {},
   allowedDevOrigins,
   webpack: (config) => {
     config.resolve ??= {};
