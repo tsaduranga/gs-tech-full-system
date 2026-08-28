@@ -61,11 +61,15 @@ type NavLeaf = {
   readonly icon: LucideIcon;
 };
 
+type NavLink = NavLeaf;
+
 type NavSection = {
   readonly heading: string;
   readonly sectionIcon: LucideIcon;
   readonly children: readonly NavLeaf[];
 };
+
+type NavMainEntry = NavLink | NavSection;
 
 const USER_MANAGEMENT_CHILDREN: readonly NavLeaf[] = [
   { href: "/dashboard/users", label: "Users", icon: Users },
@@ -137,10 +141,7 @@ const REPORTS_CHILDREN: readonly NavLeaf[] = [
   { href: "/dashboard/reports", label: "Reports", icon: BarChart3 },
 ] as const;
 
-const NAV_MAIN: readonly (
-  | { readonly href: string; readonly label: string; readonly icon: LucideIcon }
-  | NavSection
-)[] = [
+const NAV_MAIN: readonly NavMainEntry[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   {
     heading: "User Management",
@@ -189,7 +190,7 @@ function NavLinks({
   collapsedSections,
   toggleSection,
 }: {
-  navItems: typeof NAV_MAIN;
+  navItems: readonly NavMainEntry[];
   onNavigate?: () => void;
   collapsedSections: ReadonlySet<string>;
   toggleSection: (key: string) => void;
@@ -311,22 +312,25 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const filteredNav = useMemo(() => {
+  const filteredNav = useMemo((): NavMainEntry[] => {
     const canViewRoute = (href: string) => {
       const config = getRoutePermission(href);
       return !config || hasPermission(config.view);
     };
 
-    return NAV_MAIN.flatMap((entry) => {
+    const result: NavMainEntry[] = [];
+    for (const entry of NAV_MAIN) {
       if ("href" in entry) {
-        return canViewRoute(entry.href) ? [entry] : [];
+        if (canViewRoute(entry.href)) result.push(entry);
+        continue;
       }
 
       const children = entry.children.filter((child) => canViewRoute(child.href));
-      if (children.length === 0) return [];
-
-      return [{ ...entry, children }];
-    });
+      if (children.length > 0) {
+        result.push({ ...entry, children });
+      }
+    }
+    return result;
   }, [hasPermission]);
 
   const storageKey = "pos-admin-sidebar-collapsed-sections";
