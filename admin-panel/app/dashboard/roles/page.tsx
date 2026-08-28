@@ -33,11 +33,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
+import { useConfirmDialog } from "@/components/confirm-dialog";
 
 type RoleRow = {
   id: number;
@@ -52,10 +53,6 @@ type RoleListResponse = {
   pageSize: number;
 };
 
-type PermRow = { id: number; key: string; description?: string | null };
-
-type RoleDetailResponse = RoleRow & { permission_ids: number[] };
-
 const PAGE_OPTIONS = [5, 10, 25, 50];
 
 const roleDialogSchema = z.object({
@@ -68,7 +65,6 @@ const roleDialogSchema = z.object({
     .string()
     .trim()
     .max(500, "Description must be at most 500 characters"),
-  permissionIds: z.array(z.number().int().positive()),
 });
 
 type RoleDialogFormValues = z.infer<typeof roleDialogSchema>;
@@ -77,9 +73,11 @@ function fieldErrorCls() {
   return "text-xs text-destructive";
 }
 
+const textareaClass =
+  "min-h-[80px] w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20";
+
 export default function RolesPage() {
   const [list, setList] = useState<RoleRow[]>([]);
-  const [perms, setPerms] = useState<PermRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -91,9 +89,11 @@ export default function RolesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const { canEdit } = useRouteAccess();
 
   const roleFormDefaults: RoleDialogFormValues = useMemo(
-    () => ({ name: "", description: "", permissionIds: [] }),
+    () => ({ name: "", description: "" }),
     []
   );
 
@@ -104,8 +104,7 @@ export default function RolesPage() {
     reValidateMode: "onChange",
   });
 
-  const { register, watch, setValue, clearErrors, reset, formState, handleSubmit } =
-    roleForm;
+  const { register, clearErrors, reset, formState, handleSubmit } = roleForm;
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(total / pageSize)),
@@ -136,12 +135,6 @@ export default function RolesPage() {
     void loadRoles();
   }, [loadRoles]);
 
-  useEffect(() => {
-    void apiJson<PermRow[]>("/roles/permissions").then((r) => {
-      if (r.ok && Array.isArray(r.data)) setPerms(r.data as PermRow[]);
-    });
-  }, []);
-
   function resetDialogForm() {
     setEditingId(null);
     reset(roleFormDefaults);
@@ -158,39 +151,19 @@ export default function RolesPage() {
     setDialogOpen(true);
   }
 
-  async function openEdit(row: RoleRow) {
+  function openEdit(row: RoleRow) {
     setEditingId(row.id);
     reset({
       name: row.name,
       description: row.description ?? "",
-      permissionIds: [],
     });
     clearErrors();
     setDialogOpen(true);
-    const res = await apiJson<RoleDetailResponse>(`/roles/${row.id}`);
-    if (res.ok && res.data) {
-      reset({
-        name: res.data.name,
-        description: res.data.description ?? "",
-        permissionIds: res.data.permission_ids ?? [],
-      });
-    }
-  }
-
-  const permissionIds = watch("permissionIds");
-
-  function togglePermission(permId: number, checked: boolean) {
-    const cur = roleForm.getValues("permissionIds");
-    let next: number[];
-    if (checked) next = [...new Set([...cur, permId])];
-    else next = cur.filter((id) => id !== permId);
-    setValue("permissionIds", next, { shouldValidate: true, shouldDirty: true });
   }
 
   const onSubmitValid: SubmitHandler<RoleDialogFormValues> = async (data) => {
     roleForm.clearErrors("root");
     setSubmitting(true);
-    const pidList = data.permissionIds;
 
     try {
       if (editingId == null) {
@@ -199,7 +172,6 @@ export default function RolesPage() {
           body: JSON.stringify({
             name: data.name.trim(),
             description: data.description.trim() || undefined,
-            permission_ids: pidList,
           }),
         });
         if (!res.ok) {
@@ -224,7 +196,6 @@ export default function RolesPage() {
           name: data.name.trim(),
           description:
             data.description.trim() === "" ? null : data.description.trim(),
-          permission_ids: pidList,
         }),
       });
 
@@ -253,13 +224,13 @@ export default function RolesPage() {
   };
 
   async function deleteRole(row: RoleRow) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        `Delete role "${row.name}"? Users lose this assignment; permissions are detached.`
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: "Delete role",
+      description: `Remove role "${row.name}" from lists? User assignments are cleared. Historical records are kept.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     const res = await apiJson(`/roles/${row.id}`, { method: "DELETE" });
     if (!res.ok) {
       setListError(res.error ?? "Delete failed");
@@ -275,13 +246,15 @@ export default function RolesPage() {
         <div>
           <CardTitle>Roles</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Create roles, assign permissions, and manage access.
+            Create roles and manage access.
           </p>
         </div>
-        <Button type="button" onClick={openCreate}>
-          <PlusIcon className="mr-2 size-4" />
-          Add role
-        </Button>
+        {canEdit ? (
+          <Button type="button" onClick={openCreate}>
+            <PlusIcon className="mr-2 size-4" />
+            Add role
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -333,7 +306,9 @@ export default function RolesPage() {
                 <TableHead className="w-16">Id</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead className="min-w-[200px]">Description</TableHead>
-                <TableHead className="w-[120px] text-right">Actions</TableHead>
+                {canEdit ? (
+                  <TableHead className="w-[120px] text-right">Actions</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -360,29 +335,31 @@ export default function RolesPage() {
                     <TableCell className="text-muted-foreground">
                       {row.description ?? "—"}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Edit ${row.name}`}
-                          onClick={() => void openEdit(row)}
-                        >
-                          <PencilIcon className="size-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${row.name}`}
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => void deleteRole(row)}
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {canEdit ? (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Edit ${row.name}`}
+                            onClick={() => openEdit(row)}
+                          >
+                            <PencilIcon className="size-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Delete ${row.name}`}
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => void deleteRole(row)}
+                          >
+                            <Trash2Icon className="size-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 ))
               )}
@@ -429,12 +406,12 @@ export default function RolesPage() {
           if (!open) resetDialogForm();
         }}
       >
-        <DialogContent showCloseButton className="flex max-h-[min(640px,calc(100vh-4rem))] max-w-full flex-col gap-0 p-1 sm:max-w-lg">
+        <DialogContent showCloseButton className="flex max-h-[min(640px,calc(100vh-4rem))] max-w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
           <form
             onSubmit={handleSubmit(onSubmitValid, onSubmitInvalid)}
             className="flex max-h-[min(620px,calc(100vh-5rem))] flex-col"
           >
-            <DialogHeader className="px-4 pt-4">
+            <DialogHeader>
               <DialogTitle>
                 {editingId == null ? "Add role" : "Edit role"}
               </DialogTitle>
@@ -459,11 +436,13 @@ export default function RolesPage() {
 
               <div className="grid gap-2">
                 <Label htmlFor="r-desc">Description</Label>
-                <Input
+                <textarea
                   id="r-desc"
+                  rows={3}
                   autoComplete="off"
                   aria-invalid={Boolean(formState.errors.description)}
                   className={cn(
+                    textareaClass,
                     formState.errors.description && "border-destructive"
                   )}
                   {...register("description")}
@@ -475,46 +454,6 @@ export default function RolesPage() {
                 ) : null}
               </div>
 
-              <div className="grid gap-2">
-                <Label id="perms-label">Permissions</Label>
-                <div
-                  className="max-h-[220px] space-y-2 overflow-y-auto rounded-md border border-border p-3"
-                  role="group"
-                  aria-labelledby="perms-label"
-                >
-                  {perms.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      Loading permissions…
-                    </p>
-                  ) : (
-                    perms.map((p) => (
-                      <label
-                        key={p.id}
-                        className="flex cursor-pointer items-center gap-2 text-sm"
-                      >
-                        <Checkbox
-                          checked={permissionIds.includes(p.id)}
-                          onCheckedChange={(v) =>
-                            togglePermission(p.id, v === true)
-                          }
-                        />
-                        <span className="font-mono text-xs">{p.key}</span>
-                        {p.description ? (
-                          <span className="text-muted-foreground">
-                            — {p.description}
-                          </span>
-                        ) : null}
-                      </label>
-                    ))
-                  )}
-                </div>
-                {formState.errors.permissionIds?.message ? (
-                  <p className={fieldErrorCls()} role="alert">
-                    {String(formState.errors.permissionIds.message)}
-                  </p>
-                ) : null}
-              </div>
-
               {formState.errors.root?.message ? (
                 <p className={fieldErrorCls()} role="alert">
                   {String(formState.errors.root.message)}
@@ -522,7 +461,7 @@ export default function RolesPage() {
               ) : null}
             </div>
 
-            <DialogFooter className="px-4 pb-4 pt-3">
+            <DialogFooter>
               <Button
                 type="button"
                 variant="outline"
@@ -540,6 +479,7 @@ export default function RolesPage() {
           </form>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </Card>
   );
 }

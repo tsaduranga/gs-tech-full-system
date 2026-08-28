@@ -37,7 +37,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
+import { useConfirmDialog } from "@/components/confirm-dialog";
 
 /** Align with api `codeSchema`. */
 const CODE_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
@@ -102,6 +104,8 @@ export default function WarehousesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const { canEdit } = useRouteAccess();
 
   const defaults = useMemo<WarehouseFormValues>(
     () => ({
@@ -254,11 +258,13 @@ export default function WarehousesPage() {
   const onSubmitInvalid: SubmitErrorHandler<WarehouseFormValues> = () => {};
 
   async function deleteWarehouse(row: WarehouseRow) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Delete warehouse "${row.code}" — ${row.name}?`)
-    )
-      return;
+    const ok = await confirm({
+      title: "Delete warehouse",
+      description: `Remove warehouse "${row.code}" — ${row.name} from lists? Historical records are kept.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     const res = await apiJson(`/warehouses/${row.id}`, { method: "DELETE" });
     if (!res.ok) {
       setListError(res.error ?? "Delete failed");
@@ -289,10 +295,12 @@ export default function WarehousesPage() {
             Storage locations for stock and movements.
           </p>
         </div>
-        <Button type="button" onClick={openCreate}>
-          <PlusIcon className="mr-2 size-4" />
-          Add warehouse
-        </Button>
+        {canEdit ? (
+          <Button type="button" onClick={openCreate}>
+            <PlusIcon className="mr-2 size-4" />
+            Add warehouse
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -346,7 +354,9 @@ export default function WarehousesPage() {
                 <TableHead>Name</TableHead>
                 <TableHead className="w-[72px]">Active</TableHead>
                 <TableHead className="w-[100px]">Updated</TableHead>
-                <TableHead className="w-[112px] text-right">Actions</TableHead>
+                {canEdit ? (
+                  <TableHead className="w-[112px] text-right">Actions</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -377,29 +387,31 @@ export default function WarehousesPage() {
                     <TableCell className="text-muted-foreground text-xs">
                       {fmt(row.updated_at)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Edit ${row.code}`}
-                          onClick={() => void openEdit(row)}
-                        >
-                          <PencilIcon className="size-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${row.code}`}
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => void deleteWarehouse(row)}
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {canEdit ? (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Edit ${row.code}`}
+                            onClick={() => void openEdit(row)}
+                          >
+                            <PencilIcon className="size-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Delete ${row.code}`}
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => void deleteWarehouse(row)}
+                          >
+                            <Trash2Icon className="size-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 ))
               )}
@@ -457,7 +469,7 @@ export default function WarehousesPage() {
               </DialogTitle>
             </DialogHeader>
 
-            <div className="grid gap-4">
+            <div className="grid gap-4 px-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="wh-code">
                   Code<span className="text-destructive">*</span>
@@ -535,6 +547,7 @@ export default function WarehousesPage() {
           </form>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </Card>
   );
 }

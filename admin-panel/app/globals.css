@@ -39,6 +39,7 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-header: var(--header);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -49,7 +50,8 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
+  --background: oklch(0.965 0.006 264);
+  --header: oklch(0.935 0.01 264);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -73,14 +75,14 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.28 0.07 264);
+  --sidebar-foreground: oklch(0.96 0.01 264);
+  --sidebar-primary: oklch(0.72 0.14 250);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.36 0.08 264);
+  --sidebar-accent-foreground: oklch(0.96 0.01 264);
+  --sidebar-border: oklch(0.96 0.01 264 / 14%);
+  --sidebar-ring: oklch(0.72 0.14 250);
 }
 
 .dark {
@@ -126,5 +128,21 @@
   }
   html {
     @apply font-sans;
+  }
+  a[href],
+  button:not(:disabled),
+  label[for],
+  summary,
+  [role="button"]:not([aria-disabled="true"]),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([data-disabled]),
+  [role="checkbox"]:not([aria-disabled="true"]),
+  [role="switch"]:not([aria-disabled="true"]),
+  [role="link"] {
+    @apply cursor-pointer;
+  }
+  button:disabled,
+  [aria-disabled="true"] {
+    @apply cursor-not-allowed;
   }
 }

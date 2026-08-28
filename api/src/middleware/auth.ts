@@ -22,6 +22,9 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       throw new HttpError(401, "Invalid or expired token");
     }
 
+    const u = await userModel.findById(payload.sub);
+    if (!u || !u.is_active) throw new HttpError(401, "Unauthorized");
+
     const permissions = await userModel.getPermissionKeys(payload.sub);
     req.authUser = {
       id: payload.sub,

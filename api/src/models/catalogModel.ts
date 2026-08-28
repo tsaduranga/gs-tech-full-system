@@ -2,6 +2,7 @@ import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { pool } from "../db/pool.js";
 import { tableExists } from "../db/schemaHints.js";
 import { HttpError } from "../utils/httpError.js";
+import { softDelete, softDeleteWhere, notDeletedClause } from "../db/softDelete.js";
 
 const CATALOG_MIGRATE_MSG =
   "Catalog tables are not installed. From the api folder run: yarn migrate";
@@ -34,14 +35,16 @@ export const catalogModel = {
       }
 
       const q = opts.search?.trim();
-      let whereClause = "";
+      const conditions = [notDeletedClause("c")];
       const params: unknown[] = [];
       if (q) {
-        whereClause =
-          "WHERE c.name LIKE ? OR COALESCE(c.description,'') LIKE ? OR CAST(c.id AS CHAR) LIKE ?";
+        conditions.push(
+          "(c.name LIKE ? OR COALESCE(c.description,'') LIKE ? OR CAST(c.id AS CHAR) LIKE ?)"
+        );
         const like = `%${q}%`;
         params.push(like, like, like);
       }
+      const whereClause = `WHERE ${conditions.join(" AND ")}`;
       const [countRows] = await pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) AS ct FROM catalog_categories c ${whereClause}`,
         params
@@ -58,7 +61,7 @@ export const catalogModel = {
     async listActiveNamesOrdered(): Promise<string[]> {
       if (!(await tableExists("catalog_categories"))) return [];
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT name FROM catalog_categories WHERE is_active = 1 ORDER BY sort_order ASC, id ASC`
+        `SELECT name FROM catalog_categories WHERE is_active = 1 AND ${notDeletedClause()} ORDER BY sort_order ASC, id ASC`
       );
       return rows.map((r) => String(r.name));
     },
@@ -67,7 +70,7 @@ export const catalogModel = {
     async listActiveBrief(): Promise<{ id: number; name: string }[]> {
       if (!(await tableExists("catalog_categories"))) return [];
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT id, name FROM catalog_categories WHERE is_active = 1 ORDER BY sort_order ASC, id ASC`
+        `SELECT id, name FROM catalog_categories WHERE is_active = 1 AND ${notDeletedClause()} ORDER BY sort_order ASC, id ASC`
       );
       return rows.map((r) => ({ id: Number(r.id), name: String(r.name) }));
     },
@@ -75,7 +78,7 @@ export const catalogModel = {
     async get(id: number): Promise<RowDataPacket | null> {
       if (!(await tableExists("catalog_categories"))) return null;
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT * FROM catalog_categories WHERE id = ? LIMIT 1`,
+        `SELECT * FROM catalog_categories WHERE id = ? AND ${notDeletedClause()} LIMIT 1`,
         [id]
       );
       return rows[0] ?? null;
@@ -88,17 +91,27 @@ export const catalogModel = {
       is_active?: boolean;
     }): Promise<number> {
       await requireCategoriesTable();
+      const sortOrder =
+        input.sort_order ?? (await catalogModel.categories.nextSortOrder());
       const [r] = await pool.query<ResultSetHeader>(
         `INSERT INTO catalog_categories (name, description, sort_order, is_active)
          VALUES (?, ?, ?, ?)`,
         [
           input.name,
           input.description ?? null,
-          input.sort_order ?? 0,
+          sortOrder,
           input.is_active ?? true,
         ]
       );
       return insertId(r);
+    },
+
+    async nextSortOrder(): Promise<number> {
+      await requireCategoriesTable();
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT COALESCE(MAX(sort_order), 0) AS mx FROM catalog_categories WHERE ${notDeletedClause()}`
+      );
+      return Number(rows[0]?.mx ?? 0) + 10;
     },
 
     async update(
@@ -132,18 +145,15 @@ export const catalogModel = {
       if (!fields.length) return;
       params.push(id);
       await pool.query(
-        `UPDATE catalog_categories SET ${fields.join(", ")} WHERE id = ?`,
+        `UPDATE catalog_categories SET ${fields.join(", ")} WHERE id = ? AND ${notDeletedClause()}`,
         params
       );
     },
 
     async delete(id: number): Promise<boolean> {
-      await requireCategoriesTable();
-      const [r] = await pool.query<ResultSetHeader>(
-        `DELETE FROM catalog_categories WHERE id = ?`,
-        [id]
-      );
-      return (r.affectedRows ?? 0) > 0;
+      await requireCatalogTaxonomyTables();
+      await softDeleteWhere("catalog_subcategories", "category_id = ?", [id]);
+      return softDelete("catalog_categories", id);
     },
   },
 
@@ -162,7 +172,7 @@ export const catalogModel = {
       }
 
       const q = opts.search?.trim();
-      const conditions: string[] = [];
+      const conditions = [notDeletedClause("s"), notDeletedClause("c")];
       const params: unknown[] = [];
       if (q) {
         conditions.push(
@@ -175,7 +185,7 @@ export const catalogModel = {
         conditions.push("s.category_id = ?");
         params.push(opts.category_id);
       }
-      const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+      const whereClause = `WHERE ${conditions.join(" AND ")}`;
 
       const [countRows] = await pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) AS ct
@@ -203,7 +213,8 @@ export const catalogModel = {
         `SELECT s.*, c.name AS category_name
          FROM catalog_subcategories s
          INNER JOIN catalog_categories c ON c.id = s.category_id
-         WHERE s.id = ? LIMIT 1`,
+         WHERE s.id = ? AND ${notDeletedClause("s")} AND ${notDeletedClause("c")}
+         LIMIT 1`,
         [id]
       );
       return rows[0] ?? null;
@@ -217,6 +228,9 @@ export const catalogModel = {
       is_active?: boolean;
     }): Promise<number> {
       await requireCatalogTaxonomyTables();
+      const sortOrder =
+        input.sort_order ??
+        (await catalogModel.subcategories.nextSortOrder(input.category_id));
       const [r] = await pool.query<ResultSetHeader>(
         `INSERT INTO catalog_subcategories (category_id, name, description, sort_order, is_active)
          VALUES (?, ?, ?, ?, ?)`,
@@ -224,11 +238,21 @@ export const catalogModel = {
           input.category_id,
           input.name,
           input.description ?? null,
-          input.sort_order ?? 0,
+          sortOrder,
           input.is_active ?? true,
         ]
       );
       return insertId(r);
+    },
+
+    async nextSortOrder(categoryId: number): Promise<number> {
+      await requireCatalogTaxonomyTables();
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT COALESCE(MAX(sort_order), 0) AS mx
+         FROM catalog_subcategories WHERE category_id = ? AND ${notDeletedClause()}`,
+        [categoryId]
+      );
+      return Number(rows[0]?.mx ?? 0) + 10;
     },
 
     async update(
@@ -267,18 +291,14 @@ export const catalogModel = {
       if (!fields.length) return;
       params.push(id);
       await pool.query(
-        `UPDATE catalog_subcategories SET ${fields.join(", ")} WHERE id = ?`,
+        `UPDATE catalog_subcategories SET ${fields.join(", ")} WHERE id = ? AND ${notDeletedClause()}`,
         params
       );
     },
 
     async delete(id: number): Promise<boolean> {
       await requireCatalogTaxonomyTables();
-      const [r] = await pool.query<ResultSetHeader>(
-        `DELETE FROM catalog_subcategories WHERE id = ?`,
-        [id]
-      );
-      return (r.affectedRows ?? 0) > 0;
+      return softDelete("catalog_subcategories", id);
     },
   },
 };

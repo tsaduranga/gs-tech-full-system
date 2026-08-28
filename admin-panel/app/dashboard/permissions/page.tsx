@@ -1,485 +1,330 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import {
-  useForm,
-  type SubmitHandler,
-  type SubmitErrorHandler,
-} from "react-hook-form";
-import {
-  Loader2Icon,
-  PencilIcon,
-  PlusIcon,
-  SearchIcon,
-  Trash2Icon,
-} from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
+import {
+  ACTION_LABELS,
+  MATRIX_ACTIONS,
+  buildGroupedPermissionMatrix,
+  humanizeExtraAction,
+  type PermissionRecord,
+} from "@/lib/permission-matrix";
 
-/** Must match api `permissionModel.PERMISSION_KEY_RE`. */
-const PERMISSION_KEY_RE = /^([a-z][a-z0-9_]*)(\.[a-z][a-z0-9_]*)+$/;
-
-type PermRow = {
+type RoleRow = {
   id: number;
-  key: string;
+  name: string;
   description: string | null;
 };
 
-type PermListResponse = {
-  items: PermRow[];
+type RoleListResponse = {
+  items: RoleRow[];
   total: number;
-  page: number;
-  pageSize: number;
 };
 
-type PermDetailResponse = PermRow;
-
-const PAGE_OPTIONS = [5, 10, 25, 50];
-
-const permissionDialogSchema = z.object({
-  key: z
-    .string()
-    .trim()
-    .min(2, "Key must be at least 2 characters")
-    .max(100)
-    .regex(
-      PERMISSION_KEY_RE,
-      "Use lowercase dot notation, e.g. warehouses.read or purchase_orders.write"
-    ),
-  description: z.string().trim().max(500, "Description at most 500 characters"),
-});
-
-type PermissionDialogValues = z.infer<typeof permissionDialogSchema>;
-
-function fieldErrorCls() {
-  return "text-xs text-destructive";
-}
+type RoleDetailResponse = {
+  id: number;
+  name: string;
+  description: string | null;
+  permission_ids: number[];
+};
 
 export default function PermissionsPage() {
-  const [list, setList] = useState<PermRow[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [filterInput, setFilterInput] = useState("");
-  const [activeQuery, setActiveQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [listError, setListError] = useState<string | null>(null);
+  const [roles, setRoles] = useState<RoleRow[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+  const [allPermissions, setAllPermissions] = useState<PermissionRecord[]>([]);
+  const [permissionsLoading, setPermissionsLoading] = useState(true);
 
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [selectedRoleId, setSelectedRoleId] = useState(0);
+  const [assignedIds, setAssignedIds] = useState<Set<number>>(new Set());
+  const [roleLoading, setRoleLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const { canEdit } = useRouteAccess();
 
-  const defaults: PermissionDialogValues = useMemo(
-    () => ({ key: "", description: "" }),
-    []
+  const groupedMatrix = useMemo(
+    () => buildGroupedPermissionMatrix(allPermissions),
+    [allPermissions]
   );
 
-  const permForm = useForm<PermissionDialogValues>({
-    resolver: zodResolver(permissionDialogSchema),
-    defaultValues: defaults,
-    mode: "onTouched",
-    reValidateMode: "onChange",
-  });
-
-  const {
-    register,
-    clearErrors,
-    reset,
-    formState,
-    handleSubmit,
-  } = permForm;
-
-  const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(total / pageSize)),
-    [total, pageSize]
+  const roleOptions = useMemo(
+    () =>
+      roles.map((role) => ({
+        value: role.id,
+        label: role.description?.trim()
+          ? `${role.name} — ${role.description}`
+          : role.name,
+      })),
+    [roles]
   );
 
-  const loadList = useCallback(async () => {
-    setLoading(true);
-    setListError(null);
-    const qs = new URLSearchParams({
-      page: String(page),
-      pageSize: String(pageSize),
-    });
-    if (activeQuery.trim()) qs.set("q", activeQuery.trim());
-    const res = await apiJson<PermListResponse>(`/permissions?${qs.toString()}`);
-    setLoading(false);
-    if (!res.ok || !res.data?.items) {
-      setListError(res.error ?? "Failed to load permissions");
-      setList([]);
-      setTotal(0);
-      return;
-    }
-    setList(res.data.items);
-    setTotal(res.data.total);
-  }, [page, pageSize, activeQuery]);
+  const selectedRole = useMemo(
+    () => roles.find((role) => role.id === selectedRoleId) ?? null,
+    [roles, selectedRoleId]
+  );
 
   useEffect(() => {
-    void loadList();
-  }, [loadList]);
-
-  function resetDialogForm() {
-    setEditingId(null);
-    reset(defaults);
-    clearErrors();
-  }
-
-  function applyFilter() {
-    setPage(1);
-    setActiveQuery(filterInput.trim());
-  }
-
-  function openCreate() {
-    resetDialogForm();
-    setDialogOpen(true);
-  }
-
-  async function openEdit(row: PermRow) {
-    setEditingId(row.id);
-    reset({
-      key: row.key,
-      description: row.description ?? "",
+    void apiJson<RoleListResponse>("/roles?page=1&pageSize=200").then((res) => {
+      setRolesLoading(false);
+      if (res.ok && res.data?.items) setRoles(res.data.items);
     });
-    clearErrors();
-    setDialogOpen(true);
-    const res = await apiJson<PermDetailResponse>(`/permissions/${row.id}`);
-    if (res.ok && res.data) {
-      reset({
-        key: res.data.key,
-        description: res.data.description ?? "",
-      });
+  }, []);
+
+  useEffect(() => {
+    void apiJson<PermissionRecord[]>("/roles/permissions").then((res) => {
+      setPermissionsLoading(false);
+      if (res.ok && Array.isArray(res.data)) setAllPermissions(res.data);
+    });
+  }, []);
+
+  const loadRolePermissions = useCallback(async (roleId: number) => {
+    if (roleId <= 0) {
+      setAssignedIds(new Set());
+      setDirty(false);
+      return;
     }
+
+    setRoleLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    const res = await apiJson<RoleDetailResponse>(`/roles/${roleId}`);
+    setRoleLoading(false);
+
+    if (!res.ok || !res.data) {
+      setError(res.error ?? "Failed to load role permissions");
+      setAssignedIds(new Set());
+      return;
+    }
+
+    setAssignedIds(new Set(res.data.permission_ids ?? []));
+    setDirty(false);
+  }, []);
+
+  useEffect(() => {
+    void loadRolePermissions(selectedRoleId);
+  }, [selectedRoleId, loadRolePermissions]);
+
+  function togglePermission(permId: number, checked: boolean) {
+    setAssignedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(permId);
+      else next.delete(permId);
+      return next;
+    });
+    setDirty(true);
+    setSuccess(null);
   }
 
-  const onSubmitValid: SubmitHandler<PermissionDialogValues> = async (data) => {
-    permForm.clearErrors("root");
-    setSubmitting(true);
-    const key = data.key.trim();
-    const description = data.description.trim() === "" ? null : data.description.trim();
+  async function savePermissions() {
+    if (selectedRoleId <= 0) return;
 
-    try {
-      if (editingId == null) {
-        const res = await apiJson<{ id: number }>("/permissions", {
-          method: "POST",
-          body: JSON.stringify({ key, description }),
-        });
-        if (!res.ok) {
-          permForm.setError("root", {
-            type: "server",
-            message: res.error ?? "Could not create permission",
-          });
-          setSubmitting(false);
-          return;
-        }
-        setDialogOpen(false);
-        resetDialogForm();
-        setPage(1);
-        await loadList();
-        setSubmitting(false);
-        return;
-      }
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
 
-      const res = await apiJson(`/permissions/${editingId}`, {
-        method: "PATCH",
-        body: JSON.stringify({ key: data.key.trim(), description }),
-      });
+    const res = await apiJson(`/roles/${selectedRoleId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        permission_ids: [...assignedIds],
+      }),
+    });
 
-      setSubmitting(false);
-      if (!res.ok) {
-        permForm.setError("root", {
-          type: "server",
-          message: res.error ?? "Could not update permission",
-        });
-        return;
-      }
-      setDialogOpen(false);
-      resetDialogForm();
-      await loadList();
-    } catch {
-      setSubmitting(false);
-      permForm.setError("root", {
-        type: "server",
-        message: "Request failed unexpectedly",
-      });
-    }
-  };
+    setSaving(false);
 
-  const onSubmitInvalid: SubmitErrorHandler<PermissionDialogValues> = () => {};
-
-  async function deletePerm(row: PermRow) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        `Delete permission "${row.key}"? Roles lose this capability until you assign others.`
-      )
-    )
-      return;
-    const res = await apiJson(`/permissions/${row.id}`, { method: "DELETE" });
     if (!res.ok) {
-      setListError(res.error ?? "Delete failed");
+      setError(res.error ?? "Could not save permissions");
       return;
     }
-    if (list.length <= 1 && page > 1) setPage((p) => p - 1);
-    await loadList();
+
+    setDirty(false);
+    setSuccess("Permissions saved.");
   }
+
+  const initialLoading = rolesLoading || permissionsLoading;
 
   return (
     <Card>
-      <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-4 space-y-0">
+      <CardHeader className="flex flex-col gap-4 space-y-0 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <CardTitle>Permissions</CardTitle>
           <p className="text-sm text-muted-foreground">
-            System permission keys mapped to RBAC roles.
+            Select a role and assign module access — view, edit, delete, and CSV
+            download.
           </p>
         </div>
-        <Button type="button" onClick={openCreate}>
-          <PlusIcon className="mr-2 size-4" />
-          Add permission
-        </Button>
+        {selectedRoleId > 0 && canEdit ? (
+          <Button
+            type="button"
+            disabled={!dirty || saving || roleLoading}
+            onClick={() => void savePermissions()}
+          >
+            {saving ? (
+              <Loader2Icon className="mr-2 size-4 animate-spin" />
+            ) : null}
+            Save permissions
+          </Button>
+        ) : null}
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-          <div className="flex max-w-md flex-1 flex-col gap-2">
-            <Label htmlFor="perm-filter">Filter</Label>
-            <div className="flex gap-2">
-              <Input
-                id="perm-filter"
-                placeholder="Search id, key, or description…"
-                value={filterInput}
-                onChange={(e) => setFilterInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && applyFilter()}
-              />
-              <Button type="button" variant="outline" onClick={applyFilter}>
-                <SearchIcon className="mr-1 size-4" />
-                Search
-              </Button>
-            </div>
-          </div>
-          <div className="flex min-w-[140px] flex-col gap-2">
-            <Label htmlFor="perm-page-size">Rows per page</Label>
-            <SearchableNumPicker
-              id="perm-page-size"
-              options={PAGE_OPTIONS.map((n) => ({
-                value: n,
-                label: String(n),
-              }))}
-              valueId={pageSize}
-              onValueChange={(id) => {
-                if (!PAGE_OPTIONS.includes(id)) return;
-                setPageSize(id);
-                setPage(1);
-              }}
-              placeholder="Rows"
-            />
-          </div>
+
+      <CardContent className="flex flex-col gap-6">
+        <div className="flex max-w-xl flex-col gap-2">
+          <Label htmlFor="perm-role">Role</Label>
+          <SearchableNumPicker
+            id="perm-role"
+            options={roleOptions}
+            valueId={selectedRoleId}
+            onValueChange={setSelectedRoleId}
+            loading={rolesLoading}
+            placeholder="Search and select a role…"
+            emptyListHint="No roles found"
+            emptyFilterHint="No matching roles"
+          />
         </div>
 
-        {listError ? (
+        {error ? (
           <p className="text-sm text-destructive" role="alert">
-            {listError}
+            {error}
+          </p>
+        ) : null}
+        {success ? (
+          <p className="text-sm text-emerald-700" role="status">
+            {success}
           </p>
         ) : null}
 
-        <div className="relative overflow-x-auto rounded-md border border-border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-16">Id</TableHead>
-                <TableHead>Key</TableHead>
-                <TableHead className="min-w-[200px]">Description</TableHead>
-                <TableHead className="w-[120px] text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="h-24 text-center">
-                    <Loader2Icon className="mx-auto size-6 animate-spin text-muted-foreground" />
-                  </TableCell>
-                </TableRow>
-              ) : list.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={4}
-                    className="h-24 text-center text-muted-foreground"
-                  >
-                    No permissions match your filters.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                list.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell>{row.id}</TableCell>
-                    <TableCell className="font-mono text-sm font-medium">
-                      {row.key}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {row.description?.trim() ? row.description : "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Edit ${row.key}`}
-                          onClick={() => void openEdit(row)}
-                        >
-                          <PencilIcon className="size-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${row.key}`}
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => void deletePerm(row)}
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            {total === 0
-              ? "No results"
-              : `Showing ${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} of ${total}`}
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page <= 1 || loading}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-            >
-              Previous
-            </Button>
-            <span className="text-sm tabular-nums text-muted-foreground">
-              Page {page} / {totalPages}
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
+        {initialLoading ? (
+          <div className="flex h-40 items-center justify-center rounded-md border border-border">
+            <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
           </div>
-        </div>
-      </CardContent>
+        ) : selectedRoleId <= 0 ? (
+          <div className="rounded-md border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+            Choose a role to view and edit its permissions.
+          </div>
+        ) : roleLoading ? (
+          <div className="flex h-40 items-center justify-center rounded-md border border-border">
+            <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {selectedRole ? (
+              <p className="text-sm text-muted-foreground">
+                Editing access for{" "}
+                <span className="font-medium text-foreground">
+                  {selectedRole.name}
+                </span>
+                {selectedRole.description?.trim()
+                  ? ` — ${selectedRole.description}`
+                  : null}
+              </p>
+            ) : null}
 
-      <Dialog
-        open={dialogOpen}
-        onOpenChange={(open) => {
-          setDialogOpen(open);
-          if (!open) resetDialogForm();
-        }}
-      >
-        <DialogContent showCloseButton className="sm:max-w-md">
-          <form
-            onSubmit={handleSubmit(onSubmitValid, onSubmitInvalid)}
-            className="flex flex-col gap-4"
-          >
-            <DialogHeader>
-              <DialogTitle>
-                {editingId == null ? "Add permission" : "Edit permission"}
-              </DialogTitle>
-            </DialogHeader>
-
-            <div className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="perm-key">
-                  Key<span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="perm-key"
-                  className={cn(formState.errors.key && "border-destructive", "font-mono text-sm")}
-                  placeholder="e.g. items.write"
-                  autoComplete="off"
-                  aria-invalid={Boolean(formState.errors.key)}
-                  {...register("key")}
-                />
-                {formState.errors.key?.message ? (
-                  <p className={fieldErrorCls()} role="alert">
-                    {String(formState.errors.key.message)}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="perm-desc">Description</Label>
-                <Input
-                  id="perm-desc"
-                  placeholder="Human-readable explanation (optional)"
-                  autoComplete="off"
-                  aria-invalid={Boolean(formState.errors.description)}
-                  className={cn(formState.errors.description && "border-destructive")}
-                  {...register("description")}
-                />
-                {formState.errors.description?.message ? (
-                  <p className={fieldErrorCls()} role="alert">
-                    {String(formState.errors.description.message)}
-                  </p>
-                ) : null}
-              </div>
-
-              {formState.errors.root?.message ? (
-                <p className={fieldErrorCls()} role="alert">
-                  {String(formState.errors.root.message)}
-                </p>
-              ) : null}
+            <div className="overflow-x-auto rounded-md border border-border">
+              <table className="w-full min-w-[640px] border-collapse text-sm">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40">
+                    <th className="px-4 py-3 text-left font-medium">Module</th>
+                    {MATRIX_ACTIONS.map((action) => (
+                      <th
+                        key={action}
+                        className="px-3 py-3 text-center font-medium whitespace-nowrap"
+                      >
+                        {ACTION_LABELS[action]}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {groupedMatrix.map((section) => (
+                    <Fragment key={section.heading}>
+                      <tr className="border-b border-border bg-muted/50">
+                        <td
+                          colSpan={1 + MATRIX_ACTIONS.length}
+                          className="px-4 py-2.5 text-[11px] font-semibold tracking-[0.12em] text-muted-foreground uppercase"
+                        >
+                          {section.heading}
+                        </td>
+                      </tr>
+                      {section.rows.map((row) => (
+                        <tr
+                          key={row.moduleKey}
+                          className="border-b border-border last:border-b-0"
+                        >
+                          <td className="px-4 py-3 align-top">
+                            <div className="font-medium">{row.moduleLabel}</div>
+                            {row.extras.length > 0 ? (
+                              <div className="mt-2 space-y-1.5">
+                                {row.extras.map((extra) => (
+                                  <label
+                                    key={extra.id}
+                                    className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground"
+                                  >
+                                    <Checkbox
+                                      checked={assignedIds.has(extra.id)}
+                                      disabled={!canEdit}
+                                      onCheckedChange={(v) =>
+                                        togglePermission(extra.id, v === true)
+                                      }
+                                    />
+                                    <span>{humanizeExtraAction(extra.key)}</span>
+                                  </label>
+                                ))}
+                              </div>
+                            ) : null}
+                          </td>
+                          {MATRIX_ACTIONS.map((action) => {
+                            const perm = row.cells[action];
+                            return (
+                              <td
+                                key={action}
+                                className="px-3 py-3 text-center align-middle"
+                              >
+                                {perm ? (
+                                  <div className="flex justify-center">
+                                    <Checkbox
+                                      checked={assignedIds.has(perm.id)}
+                                      disabled={!canEdit}
+                                      aria-label={`${row.moduleLabel} — ${ACTION_LABELS[action]}`}
+                                      onCheckedChange={(v) =>
+                                        togglePermission(perm.id, v === true)
+                                      }
+                                    />
+                                  </div>
+                                ) : (
+                                  <span
+                                    className="text-xs text-muted-foreground/50"
+                                    aria-hidden
+                                  >
+                                    —
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
             </div>
 
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setDialogOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={submitting}>
-                {submitting ? (
-                  <Loader2Icon className="mr-2 size-4 animate-spin" />
-                ) : null}
-                {editingId == null ? "Create" : "Save"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+            {dirty ? (
+              <p className="text-xs text-muted-foreground">
+                You have unsaved changes.
+              </p>
+            ) : null}
+          </div>
+        )}
+      </CardContent>
     </Card>
   );
 }

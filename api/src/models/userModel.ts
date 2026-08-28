@@ -1,5 +1,7 @@
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { pool } from "../db/pool.js";
+import { softDelete, notDeletedClause } from "../db/softDelete.js";
+import { authModel } from "./authModel.js";
 import bcrypt from "bcrypt";
 
 export type DbUserRow = RowDataPacket & {
@@ -8,12 +10,13 @@ export type DbUserRow = RowDataPacket & {
   email: string;
   password_hash: string;
   is_active: boolean;
+  deleted_at?: Date | null;
 };
 
 export const userModel = {
   async findByUsername(username: string): Promise<DbUserRow | null> {
     const [rows] = await pool.query<DbUserRow[]>(
-      `SELECT id, username, email, password_hash, is_active FROM users WHERE username = ? LIMIT 1`,
+      `SELECT id, username, email, password_hash, is_active FROM users WHERE username = ? AND ${notDeletedClause()} LIMIT 1`,
       [username]
     );
     const r = rows[0];
@@ -22,7 +25,7 @@ export const userModel = {
 
   async findByEmail(email: string): Promise<DbUserRow | null> {
     const [rows] = await pool.query<DbUserRow[]>(
-      `SELECT id, username, email, password_hash, is_active FROM users WHERE email = ? LIMIT 1`,
+      `SELECT id, username, email, password_hash, is_active FROM users WHERE email = ? AND ${notDeletedClause()} LIMIT 1`,
       [email]
     );
     return rows[0] ?? null;
@@ -32,7 +35,7 @@ export const userModel = {
     const [rows] = await pool.query<
       (DbUserRow & { created_at: Date; updated_at: Date })[]
     >(
-      `SELECT id, username, email, password_hash, is_active, created_at, updated_at FROM users WHERE id = ? LIMIT 1`,
+      `SELECT id, username, email, password_hash, is_active, created_at, updated_at FROM users WHERE id = ? AND ${notDeletedClause()} LIMIT 1`,
       [id]
     );
     return rows[0] ?? null;
@@ -53,7 +56,8 @@ export const userModel = {
        FROM permissions p
        INNER JOIN role_permissions rp ON rp.permission_id = p.id
        INNER JOIN user_roles ur ON ur.role_id = rp.role_id
-       WHERE ur.user_id = ?`,
+       INNER JOIN roles r ON r.id = ur.role_id
+       WHERE ur.user_id = ? AND ${notDeletedClause("p")} AND ${notDeletedClause("r")}`,
       [userId]
     );
     return rows.map((r) => String(r.pk));
@@ -61,7 +65,7 @@ export const userModel = {
 
   async list(): Promise<Omit<DbUserRow, "password_hash">[]> {
     const [rows] = await pool.query<(Omit<DbUserRow, "password_hash"> & RowDataPacket)[]>(
-      `SELECT id, username, email, is_active, created_at, updated_at FROM users ORDER BY id`
+      `SELECT id, username, email, is_active, created_at, updated_at FROM users WHERE ${notDeletedClause()} ORDER BY id`
     );
     return rows;
   },
@@ -72,14 +76,16 @@ export const userModel = {
     offset: number;
   }): Promise<{ rows: RowDataPacket[]; total: number }> {
     const q = opts.search?.trim();
-    let whereClause = "";
+    const conditions = [notDeletedClause("u")];
     const params: unknown[] = [];
     if (q) {
-      whereClause =
-        "WHERE u.username LIKE ? OR u.email LIKE ? OR CAST(u.id AS CHAR) LIKE ?";
+      conditions.push(
+        "(u.username LIKE ? OR u.email LIKE ? OR CAST(u.id AS CHAR) LIKE ?)"
+      );
       const like = `%${q}%`;
       params.push(like, like, like);
     }
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
     const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS c FROM users u ${whereClause}`,
       params
@@ -94,18 +100,16 @@ export const userModel = {
 
   async findByIdPublic(id: number): Promise<RowDataPacket | null> {
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, username, email, is_active, created_at, updated_at FROM users WHERE id = ? LIMIT 1`,
+      `SELECT id, username, email, is_active, created_at, updated_at FROM users WHERE id = ? AND ${notDeletedClause()} LIMIT 1`,
       [id]
     );
     return rows[0] ?? null;
   },
 
   async deleteUser(id: number): Promise<boolean> {
-    const [r] = await pool.query<ResultSetHeader>(
-      `DELETE FROM users WHERE id = ?`,
-      [id]
-    );
-    return (r.affectedRows ?? 0) > 0;
+    const ok = await softDelete("users", id);
+    if (ok) await authModel.revokeAllForUser(id);
+    return ok;
   },
 
   async create(input: {
@@ -151,6 +155,9 @@ export const userModel = {
     }
     if (fields.length === 0) return;
     params.push(id);
-    await pool.query(`UPDATE users SET ${fields.join(", ")} WHERE id = ?`, params);
+    await pool.query(
+      `UPDATE users SET ${fields.join(", ")} WHERE id = ? AND ${notDeletedClause()}`,
+      params
+    );
   },
 };

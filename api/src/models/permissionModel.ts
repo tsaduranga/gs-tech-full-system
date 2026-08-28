@@ -1,5 +1,6 @@
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { pool } from "../db/pool.js";
+import { softDelete, notDeletedClause } from "../db/softDelete.js";
 
 /** Dot-notation keys like `dashboard.read` or `purchase_orders.write`. */
 export const PERMISSION_KEY_RE = /^([a-z][a-z0-9_]*)(\.[a-z][a-z0-9_]*)+$/;
@@ -13,7 +14,7 @@ export type PermissionPublic = {
 export const permissionModel = {
   async listAll(): Promise<RowDataPacket[]> {
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, \`key\`, description FROM permissions ORDER BY id`
+      `SELECT id, \`key\`, description FROM permissions WHERE ${notDeletedClause()} ORDER BY id`
     );
     return rows;
   },
@@ -24,14 +25,16 @@ export const permissionModel = {
     offset: number;
   }): Promise<{ rows: RowDataPacket[]; total: number }> {
     const q = opts.search?.trim();
-    let whereClause = "";
+    const conditions = [notDeletedClause("p")];
     const params: unknown[] = [];
     if (q) {
-      whereClause =
-        "WHERE p.`key` LIKE ? OR COALESCE(p.description, '') LIKE ? OR CAST(p.id AS CHAR) LIKE ?";
+      conditions.push(
+        "(p.`key` LIKE ? OR COALESCE(p.description, '') LIKE ? OR CAST(p.id AS CHAR) LIKE ?)"
+      );
       const like = `%${q}%`;
       params.push(like, like, like);
     }
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
     const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS c FROM permissions p ${whereClause}`,
       params
@@ -46,7 +49,7 @@ export const permissionModel = {
 
   async getById(id: number): Promise<PermissionPublic | null> {
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, \`key\`, description FROM permissions WHERE id = ? LIMIT 1`,
+      `SELECT id, \`key\`, description FROM permissions WHERE id = ? AND ${notDeletedClause()} LIMIT 1`,
       [id]
     );
     const r = rows[0];
@@ -85,14 +88,13 @@ export const permissionModel = {
     }
     if (!f.length) return;
     p.push(id);
-    await pool.query(`UPDATE permissions SET ${f.join(", ")} WHERE id = ?`, p);
+    await pool.query(
+      `UPDATE permissions SET ${f.join(", ")} WHERE id = ? AND ${notDeletedClause()}`,
+      p
+    );
   },
 
   async delete(id: number): Promise<boolean> {
-    const [r] = await pool.query<ResultSetHeader>(
-      `DELETE FROM permissions WHERE id = ?`,
-      [id]
-    );
-    return (r.affectedRows ?? 0) > 0;
+    return softDelete("permissions", id, { alsoDeactivate: false });
   },
 };

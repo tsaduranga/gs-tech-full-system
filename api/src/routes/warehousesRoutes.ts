@@ -149,19 +149,9 @@ warehousesRouter.delete("/:id", requirePermission("warehouses.write"), async (re
     if (Number.isNaN(id) || id < 1) throw new HttpError(400, "Invalid warehouse id");
     const exists = await mastersModel.warehouses.get(id);
     if (!exists) throw new HttpError(404, "Warehouse not found");
-    try {
-      const ok = await mastersModel.warehouses.delete(id);
-      if (!ok) throw new HttpError(404, "Warehouse not found");
-      res.status(204).send();
-    } catch (e) {
-      if (isForeignKeyRestriction(e)) {
-        throw new HttpError(
-          409,
-          "Cannot delete warehouse: it still has stock or stock movement history."
-        );
-      }
-      throw e;
-    }
+    const ok = await mastersModel.warehouses.delete(id);
+    if (!ok) throw new HttpError(404, "Warehouse not found");
+    res.status(204).send();
   } catch (e) {
     next(e);
   }

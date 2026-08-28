@@ -38,7 +38,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
+import { useConfirmDialog } from "@/components/confirm-dialog";
 
 type CategoryRow = {
   id: number;
@@ -72,21 +74,12 @@ const PAGE_OPTIONS = [5, 10, 25, 50];
 const textareaClass =
   "min-h-[72px] w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 aria-invalid:border-destructive";
 
-const sortField = z.preprocess((v: unknown) => {
-  if (v === undefined || v === "" || (typeof v === "number" && !Number.isFinite(v)))
-    return 0;
-  if (typeof v === "number") return Math.max(0, Math.floor(v));
-  const n = parseInt(String(v).trim(), 10);
-  return Number.isFinite(n) ? Math.max(0, n) : 0;
-}, z.number().int().min(0));
-
 const categorySchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(255),
   description: z.preprocess((v) => {
     if (v === undefined || v === null || v === "") return "";
     return typeof v === "string" ? v : String(v);
   }, z.string().max(500)),
-  sort_order: sortField,
   is_active: z.boolean(),
 });
 
@@ -108,12 +101,13 @@ export default function CategoriesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const { canEdit } = useRouteAccess();
 
   const defaults = useMemo<CategoryFormValues>(
     () => ({
       name: "",
       description: "",
-      sort_order: 0,
       is_active: true,
     }),
     []
@@ -170,7 +164,6 @@ export default function CategoriesPage() {
     reset({
       name: row.name,
       description: row.description ?? "",
-      sort_order: Number(row.sort_order),
       is_active: Boolean(row.is_active),
     });
     clearErrors();
@@ -180,7 +173,6 @@ export default function CategoriesPage() {
       reset({
         name: res.data.name,
         description: res.data.description ?? "",
-        sort_order: res.data.sort_order,
         is_active: res.data.is_active,
       });
     }
@@ -193,11 +185,9 @@ export default function CategoriesPage() {
     const payload: {
       name: string;
       description?: string | null;
-      sort_order: number;
       is_active: boolean;
     } = {
       name: data.name.trim(),
-      sort_order: data.sort_order,
       is_active: data.is_active,
     };
     if (editingId != null) payload.description = desc === "" ? null : desc;
@@ -241,13 +231,13 @@ export default function CategoriesPage() {
   const onBad: SubmitErrorHandler<CategoryFormValues> = () => {};
 
   async function remove(row: CategoryRow) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        `Delete category "${row.name}"? Its subcategories are removed automatically. Items keep existing legacy text categories.`
-      )
-    )
-      return;
+    const ok = await confirm({
+      title: "Delete category",
+      description: `Remove category "${row.name}" from lists? Subcategories will also be archived. Historical records are kept.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     const res = await apiJson(`/categories/${row.id}`, { method: "DELETE" });
     if (!res.ok) {
       setListError(res.error ?? "Delete failed");
@@ -278,16 +268,18 @@ export default function CategoriesPage() {
             Top-level groups for organising subcategories and items.
           </p>
         </div>
-        <Button
-          type="button"
-          onClick={() => {
-            resetDialog();
-            setDialogOpen(true);
-          }}
-        >
-          <PlusIcon className="mr-2 size-4" />
-          Add category
-        </Button>
+        {canEdit ? (
+          <Button
+            type="button"
+            onClick={() => {
+              resetDialog();
+              setDialogOpen(true);
+            }}
+          >
+            <PlusIcon className="mr-2 size-4" />
+            Add category
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -339,10 +331,11 @@ export default function CategoriesPage() {
                 <TableHead className="w-12">Id</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead className="min-w-[140px]">Description</TableHead>
-                <TableHead className="w-[72px]">Sort</TableHead>
                 <TableHead className="w-[64px]">Active</TableHead>
                 <TableHead className="w-[88px]">Updated</TableHead>
-                <TableHead className="w-[112px] text-right">Actions</TableHead>
+                {canEdit ? (
+                  <TableHead className="w-[112px] text-right">Actions</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -369,32 +362,33 @@ export default function CategoriesPage() {
                     <TableCell className="text-muted-foreground text-sm">
                       {row.description ?? "—"}
                     </TableCell>
-                    <TableCell className="tabular-nums">{row.sort_order}</TableCell>
                     <TableCell>{Boolean(row.is_active) ? "Yes" : "No"}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">
                       {fmt(row.updated_at)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => void openEdit(row)}
-                        >
-                          <PencilIcon className="size-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => void remove(row)}
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {canEdit ? (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => void openEdit(row)}
+                          >
+                            <PencilIcon className="size-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => void remove(row)}
+                          >
+                            <Trash2Icon className="size-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 ))
               )}
@@ -449,7 +443,7 @@ export default function CategoriesPage() {
               </DialogTitle>
             </DialogHeader>
 
-            <div className="space-y-3">
+            <div className="space-y-3 px-4 py-4">
               <div className="grid gap-2">
                 <Label htmlFor="cat-name">
                   Name<span className="text-destructive">*</span>
@@ -474,22 +468,6 @@ export default function CategoriesPage() {
                 {formState.errors.description?.message ? (
                   <p className={fieldErrorCls()}>
                     {String(formState.errors.description.message)}
-                  </p>
-                ) : null}
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="cat-sort">Sort order</Label>
-                <Input
-                  id="cat-sort"
-                  type="number"
-                  min={0}
-                  step={1}
-                  {...register("sort_order", { valueAsNumber: true })}
-                  className={cn(formState.errors.sort_order && "border-destructive")}
-                />
-                {formState.errors.sort_order?.message ? (
-                  <p className={fieldErrorCls()}>
-                    {String(formState.errors.sort_order.message)}
                   </p>
                 ) : null}
               </div>
@@ -522,6 +500,7 @@ export default function CategoriesPage() {
           </form>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </Card>
   );
 }

@@ -140,7 +140,7 @@ export function SearchableStrPicker({
                 <Combobox.Item
                   key={item.value}
                   value={item}
-                  className="cursor-default select-none rounded-md px-2 py-1.5 text-sm outline-none data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+                  className="cursor-pointer select-none rounded-md px-2 py-1.5 text-sm outline-none data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-accent data-highlighted:text-accent-foreground"
                 >
                   {item.label}
                 </Combobox.Item>

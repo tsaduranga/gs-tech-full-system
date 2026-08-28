@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { CatalogIdCombobox } from "@/components/catalog-id-combobox";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
@@ -73,6 +74,7 @@ export default function QuotationsPage() {
   const [lines, setLines] = useState<LineDraft[]>(() => [newLine()]);
   const [formMsg, setFormMsg] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const { canEdit } = useRouteAccess();
 
   const itemPickerOptions = useMemo(
     () =>
@@ -164,6 +166,24 @@ export default function QuotationsPage() {
     setValidUntil("");
     setNotes("");
     setLines([newLine()]);
+  }
+
+  if (!canEdit) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+          <p className="text-muted-foreground">
+            You have view-only access for this module.
+          </p>
+          <Link
+            href="/dashboard/quotation-history"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Quotation history
+          </Link>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

@@ -88,7 +88,7 @@ subcategoriesRouter.post("/", requirePermission("items.write"), async (req, res,
         category_id: body.category_id,
         name: body.name,
         description: body.description ?? null,
-        sort_order: body.sort_order ?? 0,
+        ...(body.sort_order !== undefined ? { sort_order: body.sort_order } : {}),
         is_active: body.is_active ?? true,
       });
       res.status(201).json({ id });

@@ -38,8 +38,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import { CatalogIdCombobox } from "@/components/catalog-id-combobox";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
+import { useConfirmDialog } from "@/components/confirm-dialog";
 
 const textareaClass =
   "min-h-[72px] w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:border-destructive/50";
@@ -158,6 +160,8 @@ export default function ItemsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const { canEdit } = useRouteAccess();
 
   const defaults = useMemo<ItemFormValues>(
     () => ({
@@ -432,11 +436,13 @@ export default function ItemsPage() {
   const onSubmitInvalid: SubmitErrorHandler<ItemFormValues> = () => {};
 
   async function deleteItem(row: ItemRow) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Delete item "${row.sku}" — ${row.name}?`)
-    )
-      return;
+    const ok = await confirm({
+      title: "Delete item",
+      description: `Remove item "${row.sku}" — ${row.name} from lists? Historical records are kept.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     const res = await apiJson(`/items/${row.id}`, { method: "DELETE" });
     if (!res.ok) {
       setListError(res.error ?? "Delete failed");
@@ -468,10 +474,12 @@ export default function ItemsPage() {
             Product catalogue: SKU, pricing, categories, and reorder levels.
           </p>
         </div>
-        <Button type="button" onClick={openCreate}>
-          <PlusIcon className="mr-2 size-4" />
-          Add item
-        </Button>
+        {canEdit ? (
+          <Button type="button" onClick={openCreate}>
+            <PlusIcon className="mr-2 size-4" />
+            Add item
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
@@ -568,7 +576,9 @@ export default function ItemsPage() {
                 <TableHead className="text-right">Reorder</TableHead>
                 <TableHead className="w-[64px]">Active</TableHead>
                 <TableHead className="w-[88px]">Updated</TableHead>
-                <TableHead className="w-[112px] text-right">Actions</TableHead>
+                {canEdit ? (
+                  <TableHead className="w-[112px] text-right">Actions</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -613,29 +623,31 @@ export default function ItemsPage() {
                     <TableCell className="text-muted-foreground text-xs">
                       {fmtDate(row.updated_at)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Edit ${row.sku}`}
-                          onClick={() => void openEdit(row)}
-                        >
-                          <PencilIcon className="size-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${row.sku}`}
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => void deleteItem(row)}
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {canEdit ? (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Edit ${row.sku}`}
+                            onClick={() => void openEdit(row)}
+                          >
+                            <PencilIcon className="size-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Delete ${row.sku}`}
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => void deleteItem(row)}
+                          >
+                            <Trash2Icon className="size-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 ))
               )}
@@ -684,13 +696,13 @@ export default function ItemsPage() {
       >
         <DialogContent
           showCloseButton
-          className="flex max-h-[min(92vh,calc(100vh-2rem))] max-w-full flex-col gap-0 overflow-hidden p-1 sm:max-w-lg"
+          className="flex max-h-[min(92vh,calc(100vh-2rem))] max-w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
         >
           <form
             className="flex max-h-[min(88vh,calc(100vh-4rem))] flex-col gap-3"
             onSubmit={handleSubmit(onSubmitValid, onSubmitInvalid)}
           >
-            <DialogHeader className="shrink-0 px-4 pt-4">
+            <DialogHeader>
               <DialogTitle>
                 {editingId == null ? "Add item" : "Edit item"}
               </DialogTitle>
@@ -704,7 +716,7 @@ export default function ItemsPage() {
                 <Input
                   id="it-sku"
                   className={cn(
-                    "font-mono text-sm sm:max-w-xs",
+                    "font-mono text-sm",
                     formState.errors.sku && "border-destructive"
                   )}
                   autoComplete="off"
@@ -931,6 +943,7 @@ export default function ItemsPage() {
           </form>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </Card>
   );
 }

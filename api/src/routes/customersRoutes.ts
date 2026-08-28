@@ -148,19 +148,9 @@ customersRouter.delete("/:id", requirePermission("customers.write"), async (req,
     if (Number.isNaN(id) || id < 1) throw new HttpError(400, "Invalid customer id");
     const exists = await mastersModel.customers.get(id);
     if (!exists) throw new HttpError(404, "Customer not found");
-    try {
-      const ok = await mastersModel.customers.delete(id);
-      if (!ok) throw new HttpError(404, "Customer not found");
-      res.status(204).send();
-    } catch (e) {
-      if (isForeignKeyRestriction(e)) {
-        throw new HttpError(
-          409,
-          "Cannot delete customer: still referenced by a quotation, invoice, or repair job."
-        );
-      }
-      throw e;
-    }
+    const ok = await mastersModel.customers.delete(id);
+    if (!ok) throw new HttpError(404, "Customer not found");
+    res.status(204).send();
   } catch (e) {
     next(e);
   }

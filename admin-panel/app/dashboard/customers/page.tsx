@@ -37,7 +37,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
+import { useConfirmDialog } from "@/components/confirm-dialog";
 
 type CustomerRow = {
   id: number;
@@ -103,6 +105,8 @@ export default function CustomersPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const { canEdit } = useRouteAccess();
 
   const defaults = useMemo<CustomerFormValues>(
     () => ({
@@ -272,11 +276,13 @@ export default function CustomersPage() {
   const onSubmitInvalid: SubmitErrorHandler<CustomerFormValues> = () => {};
 
   async function deleteCustomer(row: CustomerRow) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Delete customer "${row.name}"?`)
-    )
-      return;
+    const ok = await confirm({
+      title: "Delete customer",
+      description: `Remove customer "${row.name}" from lists? Historical records are kept.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     const res = await apiJson(`/customers/${row.id}`, { method: "DELETE" });
     if (!res.ok) {
       setListError(res.error ?? "Delete failed");
@@ -307,10 +313,12 @@ export default function CustomersPage() {
             Customer directory for quotations and invoices.
           </p>
         </div>
-        <Button type="button" onClick={openCreate}>
-          <PlusIcon className="mr-2 size-4" />
-          Add customer
-        </Button>
+        {canEdit ? (
+          <Button type="button" onClick={openCreate}>
+            <PlusIcon className="mr-2 size-4" />
+            Add customer
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -365,7 +373,9 @@ export default function CustomersPage() {
                 <TableHead>Phone</TableHead>
                 <TableHead className="w-[72px]">Active</TableHead>
                 <TableHead className="w-[100px]">Updated</TableHead>
-                <TableHead className="w-[112px] text-right">Actions</TableHead>
+                {canEdit ? (
+                  <TableHead className="w-[112px] text-right">Actions</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -399,29 +409,31 @@ export default function CustomersPage() {
                     <TableCell className="text-muted-foreground text-xs">
                       {fmt(row.updated_at)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Edit ${row.name}`}
-                          onClick={() => void openEdit(row)}
-                        >
-                          <PencilIcon className="size-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${row.name}`}
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => void deleteCustomer(row)}
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {canEdit ? (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Edit ${row.name}`}
+                            onClick={() => void openEdit(row)}
+                          >
+                            <PencilIcon className="size-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Delete ${row.name}`}
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => void deleteCustomer(row)}
+                          >
+                            <Trash2Icon className="size-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 ))
               )}
@@ -470,13 +482,13 @@ export default function CustomersPage() {
       >
         <DialogContent
           showCloseButton
-          className="flex max-h-[min(90vh,calc(100vh-2rem))] max-w-full flex-col gap-0 overflow-hidden p-1 sm:max-w-lg"
+          className="flex max-h-[min(90vh,calc(100vh-2rem))] max-w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
         >
           <form
             className="flex max-h-[min(86vh,calc(100vh-4rem))] flex-col gap-4"
             onSubmit={handleSubmit(onSubmitValid, onSubmitInvalid)}
           >
-            <DialogHeader className="shrink-0 px-4 pt-4">
+            <DialogHeader>
               <DialogTitle>
                 {editingId == null ? "Add customer" : "Edit customer"}
               </DialogTitle>
@@ -608,6 +620,7 @@ export default function CustomersPage() {
           </form>
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </Card>
   );
 }

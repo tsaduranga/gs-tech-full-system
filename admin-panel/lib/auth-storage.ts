@@ -1,6 +1,7 @@
 const ACCESS = "pos_access";
 const REFRESH = "pos_refresh";
 const USER = "pos_user";
+const PERMISSIONS = "pos_permissions";
 
 export function getApiBase(): string {
   return (
@@ -27,6 +28,7 @@ export function clearSession(): void {
   sessionStorage.removeItem(ACCESS);
   sessionStorage.removeItem(REFRESH);
   sessionStorage.removeItem(USER);
+  sessionStorage.removeItem(PERMISSIONS);
 }
 
 export function setStoredUser(u: { id: number; username: string }): void {
@@ -42,6 +44,31 @@ export function getStoredUser(): { id: number; username: string } | null {
   } catch {
     return null;
   }
+}
+
+export function setStoredPermissions(permissions: string[]): void {
+  sessionStorage.setItem(PERMISSIONS, JSON.stringify(permissions));
+}
+
+export function getStoredPermissions(): string[] {
+  if (typeof window === "undefined") return [];
+  const raw = sessionStorage.getItem(PERMISSIONS);
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function hasStoredPermission(key: string): boolean {
+  return getStoredPermissions().includes(key);
+}
+
+export function hasAnyStoredPermission(...keys: string[]): boolean {
+  const set = new Set(getStoredPermissions());
+  return keys.some((key) => set.has(key));
 }
 
 export { ACCESS, REFRESH };

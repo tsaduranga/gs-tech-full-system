@@ -45,14 +45,14 @@ import {
   Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ModeToggle } from "@/components/mode-toggle";
 import { cn } from "@/lib/utils";
 import { apiJson } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
+import { getRoutePermission } from "@/lib/route-permissions";
 import {
   clearSession,
   getStoredAccess,
   getStoredRefresh,
-  getStoredUser,
 } from "@/lib/auth-storage";
 
 type NavLeaf = {
@@ -184,10 +184,12 @@ function sectionKey(heading: string) {
 }
 
 function NavLinks({
+  navItems,
   onNavigate,
   collapsedSections,
   toggleSection,
 }: {
+  navItems: typeof NAV_MAIN;
   onNavigate?: () => void;
   collapsedSections: ReadonlySet<string>;
   toggleSection: (key: string) => void;
@@ -196,7 +198,7 @@ function NavLinks({
 
   return (
     <nav className="flex flex-col gap-0.5" aria-label="Main">
-      {NAV_MAIN.map((entry) => {
+      {navItems.map((entry) => {
         if ("heading" in entry) {
           const key = sectionKey(entry.heading);
           const collapsed = collapsedSections.has(key);
@@ -216,13 +218,13 @@ function NavLinks({
                   anyChildActive && !collapsed && "bg-sidebar-accent/25"
                 )}
               >
-                <SectionIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-                <span className="flex-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                <SectionIcon className="size-4 shrink-0 text-sidebar-foreground/55" aria-hidden />
+                <span className="flex-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-sidebar-foreground/55">
                   {entry.heading}
                 </span>
                 <ChevronDown
                   className={cn(
-                    "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                    "size-4 shrink-0 text-sidebar-foreground/55 transition-transform duration-200",
                     collapsed && "-rotate-90"
                   )}
                   aria-hidden
@@ -257,8 +259,8 @@ function NavLinks({
                             className={cn(
                               "size-4 shrink-0 transition-opacity",
                               active
-                                ? "text-primary opacity-100"
-                                : "text-muted-foreground opacity-80 group-hover:opacity-100"
+                                ? "text-sidebar-primary opacity-100"
+                                : "text-sidebar-foreground/60 opacity-80 group-hover:opacity-100"
                             )}
                             aria-hidden
                           />
@@ -291,7 +293,7 @@ function NavLinks({
             <Icon
               className={cn(
                 "size-[18px] shrink-0",
-                active ? "text-primary" : "text-muted-foreground"
+                active ? "text-sidebar-primary" : "text-sidebar-foreground/60"
               )}
               aria-hidden
             />
@@ -305,9 +307,27 @@ function NavLinks({
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const { loading: authLoading, user, hasPermission } = useAuth();
   const [ready, setReady] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const user = getStoredUser();
+
+  const filteredNav = useMemo(() => {
+    const canViewRoute = (href: string) => {
+      const config = getRoutePermission(href);
+      return !config || hasPermission(config.view);
+    };
+
+    return NAV_MAIN.flatMap((entry) => {
+      if ("href" in entry) {
+        return canViewRoute(entry.href) ? [entry] : [];
+      }
+
+      const children = entry.children.filter((child) => canViewRoute(child.href));
+      if (children.length === 0) return [];
+
+      return [{ ...entry, children }];
+    });
+  }, [hasPermission]);
 
   const storageKey = "pos-admin-sidebar-collapsed-sections";
 
@@ -351,23 +371,23 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       router.replace("/login");
       return;
     }
-    setReady(true);
-  }, [router]);
+    if (!authLoading) setReady(true);
+  }, [router, authLoading]);
 
   const asideShell =
-    "flex h-full flex-col border-border bg-sidebar text-sidebar-foreground";
+    "flex h-full flex-col border-sidebar-border bg-sidebar text-sidebar-foreground";
 
   const mobileHeader = useMemo(
     () => (
       <div className="mb-4 flex items-center gap-2 border-b border-sidebar-border pb-4">
         <div className="flex size-9 items-center justify-center rounded-lg bg-sidebar-primary/15 ring-1 ring-sidebar-primary/30">
-          <Sparkles className="size-[18px] text-primary" aria-hidden />
+          <Sparkles className="size-[18px] text-sidebar-primary" aria-hidden />
         </div>
         <div className="min-w-0">
           <p id="mobile-nav-title" className="truncate text-sm font-semibold tracking-tight">
             POS Admin
           </p>
-          <p className="truncate text-xs text-muted-foreground">Control panel</p>
+          <p className="truncate text-xs text-sidebar-foreground/60">Control panel</p>
         </div>
       </div>
     ),
@@ -384,7 +404,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
     router.replace("/login");
   }
 
-  if (!ready) {
+  if (!ready || authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">
         Loading…
@@ -404,13 +424,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div className="mb-5 flex shrink-0 items-center gap-2.5 px-1">
             <div className="flex size-9 items-center justify-center rounded-lg bg-sidebar-primary/15 ring-1 ring-sidebar-primary/35">
-              <LayoutDashboard className="size-[18px] text-primary" aria-hidden />
+              <LayoutDashboard className="size-[18px] text-sidebar-primary" aria-hidden />
             </div>
             <div className="min-w-0">
               <h1 className="truncate font-semibold tracking-tight text-sidebar-foreground">
                 POS Admin
               </h1>
-              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              <p className="text-xs font-medium tracking-wide text-sidebar-foreground/60 uppercase">
                 Operations
               </p>
             </div>
@@ -418,19 +438,20 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
           <div className="-mr-2 min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-2">
             <NavLinks
+              navItems={filteredNav}
               collapsedSections={collapsedSections}
               toggleSection={toggleSection}
             />
           </div>
 
-          <div className="mt-4 shrink-0 border-t border-sidebar-border pt-4 text-xs text-muted-foreground">
+          <div className="mt-4 shrink-0 border-t border-sidebar-border pt-4 text-xs text-sidebar-foreground/60">
             <span className="truncate block font-medium">{user?.username ?? "Signed in"}</span>
           </div>
         </div>
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col">
-        <header className="sticky top-0 z-40 flex shrink-0 items-center gap-3 border-b border-border bg-background/95 px-4 py-3 backdrop-blur supports-backdrop-filter:bg-background/75">
+        <header className="sticky top-0 z-40 flex shrink-0 items-center gap-3 border-b border-border bg-header px-4 py-3">
           <Button
             variant="outline"
             size="icon-sm"
@@ -451,7 +472,6 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             <span className="hidden text-sm text-muted-foreground sm:inline">
               {user?.username}
             </span>
-            <ModeToggle />
             <Button variant="outline" size="sm" onClick={() => logout()}>
               <LogOut className="mr-1 size-3.5" />
               Sign out
@@ -483,6 +503,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             >
               {mobileHeader}
               <NavLinks
+                navItems={filteredNav}
                 onNavigate={() => setMobileOpen(false)}
                 collapsedSections={collapsedSections}
                 toggleSection={toggleSection}

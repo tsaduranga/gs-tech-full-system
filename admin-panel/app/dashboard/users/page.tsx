@@ -37,8 +37,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import { getStoredUser } from "@/lib/auth-storage";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
+import { useConfirmDialog } from "@/components/confirm-dialog";
+import { PasswordInput } from "@/components/password-input";
 
 type UserRow = {
   id: number;
@@ -91,11 +94,13 @@ function userDialogSchema(isCreate: boolean) {
         .max(100, "Username must be at most 100 characters"),
       email: z.string().email("Invalid email"),
       password: z.string(),
+      confirmPassword: z.string(),
       is_active: z.boolean(),
       roleIds: z.array(z.number().int().positive()),
     })
     .superRefine((data, ctx) => {
       const p = data.password.trim();
+      const cp = data.confirmPassword.trim();
       if (isCreate) {
         if (p.length < 8) {
           ctx.addIssue({
@@ -104,12 +109,28 @@ function userDialogSchema(isCreate: boolean) {
             message: "Password must be at least 8 characters",
           });
         }
-      } else if (p.length > 0 && p.length < 8) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["password"],
-          message: "Leave blank or use at least 8 characters",
-        });
+        if (p !== cp) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["confirmPassword"],
+            message: "Passwords do not match",
+          });
+        }
+      } else {
+        if (p.length > 0 && p.length < 8) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["password"],
+            message: "Leave blank or use at least 8 characters",
+          });
+        }
+        if (p.length > 0 && p !== cp) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["confirmPassword"],
+            message: "Passwords do not match",
+          });
+        }
       }
     });
 }
@@ -120,6 +141,7 @@ const EMPTY_USER_VALUES: UserDialogFormValues = {
   username: "",
   email: "",
   password: "",
+  confirmPassword: "",
   is_active: true,
   roleIds: [],
 };
@@ -173,6 +195,7 @@ function UserDialogForm({
         username: seedRow.username,
         email: seedRow.email,
         password: "",
+        confirmPassword: "",
         is_active: Boolean(seedRow.is_active),
         roleIds: [],
       });
@@ -185,6 +208,7 @@ function UserDialogForm({
         username: res.data.username,
         email: res.data.email,
         password: "",
+        confirmPassword: "",
         is_active: Boolean(res.data.is_active),
         roleIds: res.data.role_ids ?? [],
       });
@@ -196,6 +220,7 @@ function UserDialogForm({
 
   const roleIds = watch("roleIds");
   const isActive = watch("is_active");
+  const passwordValue = watch("password");
 
   function toggleRole(roleId: number, checked: boolean) {
     const cur = userForm.getValues("roleIds");
@@ -272,7 +297,7 @@ function UserDialogForm({
       onSubmit={handleSubmit(onSubmitValid, onSubmitInvalid)}
       className="flex max-h-[min(620px,calc(100vh-5rem))] flex-col"
     >
-      <DialogHeader className="px-4 pt-4">
+      <DialogHeader>
         <DialogTitle>
           {editingId == null ? "Add user" : "Edit user"}
         </DialogTitle>
@@ -321,17 +346,34 @@ function UserDialogForm({
               </span>
             ) : null}
           </Label>
-          <Input
+          <PasswordInput
             id="u-password"
-            type="password"
             autoComplete={editingId == null ? "new-password" : "off"}
             aria-invalid={Boolean(formState.errors.password)}
             className={cn(formState.errors.password && "border-destructive")}
+            showStrength
+            strengthValue={passwordValue}
             {...register("password")}
           />
           {formState.errors.password?.message ? (
             <p className={fieldErrorCls()} role="alert">
               {String(formState.errors.password.message)}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="u-confirm-password">Confirm password</Label>
+          <PasswordInput
+            id="u-confirm-password"
+            autoComplete={editingId == null ? "new-password" : "off"}
+            aria-invalid={Boolean(formState.errors.confirmPassword)}
+            className={cn(formState.errors.confirmPassword && "border-destructive")}
+            {...register("confirmPassword")}
+          />
+          {formState.errors.confirmPassword?.message ? (
+            <p className={fieldErrorCls()} role="alert">
+              {String(formState.errors.confirmPassword.message)}
             </p>
           ) : null}
         </div>
@@ -395,7 +437,7 @@ function UserDialogForm({
         ) : null}
       </div>
 
-      <DialogFooter className="px-4 pb-4 pt-3">
+      <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
@@ -425,6 +467,8 @@ export default function UsersPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [seedRow, setSeedRow] = useState<UserRow | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
+  const { canEdit } = useRouteAccess();
 
   useEffect(() => {
     setCurrentUserId(getStoredUser()?.id ?? null);
@@ -487,11 +531,13 @@ export default function UsersPage() {
   }
 
   async function deleteUser(row: UserRow) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Delete user "${row.username}"? This cannot be undone.`)
-    )
-      return;
+    const ok = await confirm({
+      title: "Delete user",
+      description: `Remove user "${row.username}" from lists? Historical records are kept.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
     const res = await apiJson(`/users/${row.id}`, { method: "DELETE" });
     if (!res.ok) {
       setListError(res.error ?? "Delete failed");
@@ -518,10 +564,12 @@ export default function UsersPage() {
             Create accounts, assign roles, and manage access.
           </p>
         </div>
-        <Button type="button" onClick={openCreate}>
-          <PlusIcon className="mr-2 size-4" />
-          Add user
-        </Button>
+        {canEdit ? (
+          <Button type="button" onClick={openCreate}>
+            <PlusIcon className="mr-2 size-4" />
+            Add user
+          </Button>
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -576,7 +624,9 @@ export default function UsersPage() {
                 <TableHead className="w-24">Active</TableHead>
                 <TableHead className="min-w-[140px]">Created</TableHead>
                 <TableHead className="min-w-[140px]">Updated</TableHead>
-                <TableHead className="w-[120px] text-right">Actions</TableHead>
+                {canEdit ? (
+                  <TableHead className="w-[120px] text-right">Actions</TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -610,35 +660,37 @@ export default function UsersPage() {
                     <TableCell className="text-muted-foreground text-xs">
                       {formatTs(row.updated_at)}
                     </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Edit ${row.username}`}
-                          onClick={() => openEdit(row)}
-                        >
-                          <PencilIcon className="size-4" />
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label={`Delete ${row.username}`}
-                          disabled={currentUserId === row.id}
-                          title={
-                            currentUserId === row.id
-                              ? "You cannot delete your own account"
-                              : undefined
-                          }
-                          className="text-destructive hover:text-destructive disabled:opacity-40"
-                          onClick={() => void deleteUser(row)}
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    {canEdit ? (
+                      <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Edit ${row.username}`}
+                            onClick={() => openEdit(row)}
+                          >
+                            <PencilIcon className="size-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label={`Delete ${row.username}`}
+                            disabled={currentUserId === row.id}
+                            title={
+                              currentUserId === row.id
+                                ? "You cannot delete your own account"
+                                : undefined
+                            }
+                            className="text-destructive hover:text-destructive disabled:opacity-40"
+                            onClick={() => void deleteUser(row)}
+                          >
+                            <Trash2Icon className="size-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 ))
               )}
@@ -687,7 +739,7 @@ export default function UsersPage() {
       >
         <DialogContent
           showCloseButton
-          className="flex max-h-[min(640px,calc(100vh-4rem))] max-w-full flex-col gap-0 p-1 sm:max-w-lg"
+          className="flex max-h-[min(640px,calc(100vh-4rem))] max-w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
         >
           {dialogOpen ? (
             <UserDialogForm
@@ -709,6 +761,7 @@ export default function UsersPage() {
           ) : null}
         </DialogContent>
       </Dialog>
+      {confirmDialog}
     </Card>
   );
 }

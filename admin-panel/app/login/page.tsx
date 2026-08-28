@@ -1,8 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { EyeIcon, EyeOffIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -11,14 +12,15 @@ import { apiJson } from "@/lib/api";
 import {
   setSessionTokens,
   setStoredUser,
+  setStoredPermissions,
   getStoredAccess,
 } from "@/lib/auth-storage";
-import { useEffect } from "react";
 
 export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("Admin123!");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -35,6 +37,7 @@ export default function LoginPage() {
         accessToken: string;
         refreshToken: string;
         user: { id: number; username: string };
+        permissions: string[];
       }>("/auth/login", {
         method: "POST",
         auth: false,
@@ -46,6 +49,7 @@ export default function LoginPage() {
       }
       setSessionTokens(res.data.accessToken, res.data.refreshToken);
       setStoredUser(res.data.user);
+      setStoredPermissions(res.data.permissions ?? []);
       router.replace("/dashboard");
     } finally {
       setLoading(false);
@@ -82,14 +86,27 @@ export default function LoginPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="pr-9"
+                  required
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                </Button>
+              </div>
             </div>
             {error && (
               <p className="text-sm text-destructive" role="alert">

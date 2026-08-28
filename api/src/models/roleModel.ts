@@ -1,11 +1,12 @@
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import { pool } from "../db/pool.js";
+import { softDelete, notDeletedClause } from "../db/softDelete.js";
 import type { PermissionKey } from "../constants/permissions.js";
 
 export const roleModel = {
   async listRoles(): Promise<RowDataPacket[]> {
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, name, description FROM roles ORDER BY id`
+      `SELECT id, name, description FROM roles WHERE ${notDeletedClause()} ORDER BY id`
     );
     return rows;
   },
@@ -16,14 +17,14 @@ export const roleModel = {
     offset: number;
   }): Promise<{ rows: RowDataPacket[]; total: number }> {
     const q = opts.search?.trim();
-    let whereClause = "";
+    const conditions = [notDeletedClause("r")];
     const params: unknown[] = [];
     if (q) {
-      whereClause =
-        "WHERE r.name LIKE ? OR COALESCE(r.description, '') LIKE ?";
+      conditions.push("(r.name LIKE ? OR COALESCE(r.description, '') LIKE ?)");
       const like = `%${q}%`;
       params.push(like, like);
     }
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
     const [countRows] = await pool.query<RowDataPacket[]>(
       `SELECT COUNT(*) AS c FROM roles r ${whereClause}`,
       params
@@ -38,7 +39,7 @@ export const roleModel = {
 
   async getRoleById(id: number): Promise<RowDataPacket | null> {
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT id, name, description FROM roles WHERE id = ? LIMIT 1`,
+      `SELECT id, name, description FROM roles WHERE id = ? AND ${notDeletedClause()} LIMIT 1`,
       [id]
     );
     return rows[0] ?? null;
@@ -46,18 +47,16 @@ export const roleModel = {
 
   async getRolePermissionIds(roleId: number): Promise<number[]> {
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT permission_id FROM role_permissions WHERE role_id = ? ORDER BY permission_id`,
+      `SELECT rp.permission_id FROM role_permissions rp
+       INNER JOIN permissions p ON p.id = rp.permission_id
+       WHERE rp.role_id = ? AND ${notDeletedClause("p")}`,
       [roleId]
     );
     return rows.map((r) => Number(r.permission_id));
   },
 
   async deleteRole(id: number): Promise<boolean> {
-    const [r] = await pool.query<ResultSetHeader>(
-      `DELETE FROM roles WHERE id = ?`,
-      [id]
-    );
-    return (r.affectedRows ?? 0) > 0;
+    return softDelete("roles", id, { alsoDeactivate: false });
   },
 
   async createRole(input: { name: string; description?: string | null }): Promise<number> {
@@ -84,7 +83,10 @@ export const roleModel = {
     }
     if (!f.length) return;
     p.push(id);
-    await pool.query(`UPDATE roles SET ${f.join(", ")} WHERE id = ?`, p);
+    await pool.query(
+      `UPDATE roles SET ${f.join(", ")} WHERE id = ? AND ${notDeletedClause()}`,
+      p
+    );
   },
 
   async upsertPermissions(keys: PermissionKey[]): Promise<Map<string, number>> {
@@ -95,10 +97,10 @@ export const roleModel = {
         [k]
       );
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT id FROM permissions WHERE \`key\` = ? LIMIT 1`,
+        `SELECT id FROM permissions WHERE \`key\` = ? AND ${notDeletedClause()} LIMIT 1`,
         [k]
       );
-      map.set(k, rows[0].id as number);
+      if (rows[0]) map.set(k, rows[0].id as number);
     }
     return map;
   },
@@ -117,7 +119,7 @@ export const roleModel = {
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT p.\`key\` AS pk FROM permissions p
        INNER JOIN role_permissions rp ON rp.permission_id = p.id
-       WHERE rp.role_id = ?`,
+       WHERE rp.role_id = ? AND ${notDeletedClause("p")}`,
       [roleId]
     );
     return rows.map((x) => String(x.pk));
@@ -135,7 +137,9 @@ export const roleModel = {
 
   async getUserRoles(userId: number): Promise<number[]> {
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT role_id FROM user_roles WHERE user_id = ?`,
+      `SELECT ur.role_id FROM user_roles ur
+       INNER JOIN roles r ON r.id = ur.role_id
+       WHERE ur.user_id = ? AND ${notDeletedClause("r")}`,
       [userId]
     );
     return rows.map((r) => r.role_id as number);

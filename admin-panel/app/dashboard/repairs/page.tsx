@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { CatalogIdCombobox } from "@/components/catalog-id-combobox";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
@@ -51,6 +52,7 @@ export default function RepairsPage() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [customers, setCustomers] = useState<CustomerBrief[]>([]);
   const [users, setUsers] = useState<UserBrief[]>([]);
+  const { canEdit } = useRouteAccess();
 
   useEffect(() => {
     let cancelled = false;
@@ -153,6 +155,7 @@ export default function RepairsPage() {
                   onValueChange={setCustomerId}
                   placeholder="Search customer…"
                   loading={customersLoading}
+                  disabled={!canEdit}
                   emptyListHint="No customers"
                   emptyFilterHint="No matching customers"
                   variant="underline"
@@ -167,6 +170,7 @@ export default function RepairsPage() {
                   onValueChange={setTechnicianUserId}
                   placeholder="Unassigned — search users…"
                   loading={usersLoading}
+                  disabled={!canEdit}
                   emptyListHint="No users (check users.read permission)"
                   emptyFilterHint="No matches"
                   variant="underline"
@@ -181,6 +185,7 @@ export default function RepairsPage() {
                   onValueChange={(v) => setStatus((v || "OPEN").toUpperCase())}
                   placeholder="Status"
                   allowClear={false}
+                  disabled={!canEdit}
                 />
               </div>
             </div>
@@ -195,6 +200,7 @@ export default function RepairsPage() {
                   placeholder="Model, serial, accessories left with shop…"
                   className={underlineTextareaClass}
                   rows={3}
+                  disabled={!canEdit}
                 />
               </div>
               <div className="space-y-2">
@@ -206,26 +212,29 @@ export default function RepairsPage() {
                   placeholder="What the customer reported, symptoms, notes…"
                   className={underlineTextareaClass}
                   rows={4}
+                  disabled={!canEdit}
                 />
               </div>
             </div>
 
             <div className="flex max-w-xl flex-col gap-2 pt-2">
-              <Button
-                type="submit"
-                size="lg"
-                disabled={submitting}
-                className="inline-flex items-center gap-2"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2Icon className="size-4 animate-spin" />
-                    Creating…
-                  </>
-                ) : (
-                  "Create repair job"
-                )}
-              </Button>
+              {canEdit ? (
+                <Button
+                  type="submit"
+                  size="lg"
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2Icon className="size-4 animate-spin" />
+                      Creating…
+                    </>
+                  ) : (
+                    "Create repair job"
+                  )}
+                </Button>
+              ) : null}
               {msg ? (
                 <p
                   className={cn(

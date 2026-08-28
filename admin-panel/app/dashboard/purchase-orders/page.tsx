@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { CatalogIdCombobox } from "@/components/catalog-id-combobox";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
@@ -59,6 +60,7 @@ export default function PurchaseOrdersPage() {
   const [itemsLoading, setItemsLoading] = useState(true);
   const [suppliers, setSuppliers] = useState<SupplierBrief[]>([]);
   const [items, setItems] = useState<ItemBrief[]>([]);
+  const { canEdit } = useRouteAccess();
 
   useEffect(() => {
     let cancelled = false;
@@ -151,6 +153,24 @@ export default function PurchaseOrdersPage() {
     setSupplierId(0);
     setOrderedAt(new Date().toISOString().slice(0, 10));
     setLines([newLine()]);
+  }
+
+  if (!canEdit) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+          <p className="text-muted-foreground">
+            You have view-only access for this module.
+          </p>
+          <Link
+            href="/dashboard/purchase-order-history"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Purchase order history
+          </Link>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import {
   SearchableNumPicker,
   type NumOption,
@@ -42,6 +43,7 @@ export default function TransferItemsPage() {
   const [warehousesLoading, setWarehousesLoading] = useState(true);
   const [itemOptions, setItemOptions] = useState<NumOption[]>([]);
   const [warehouseOptions, setWarehouseOptions] = useState<NumOption[]>([]);
+  const { canEdit } = useRouteAccess();
 
   const loadData = useCallback(async () => {
     setItemsLoading(true);
@@ -131,22 +133,29 @@ export default function TransferItemsPage() {
         </p>
       </CardHeader>
       <CardContent>
+        {!canEdit ? (
+          <p className="mb-6 text-sm text-muted-foreground">
+            You have view-only access for this module.
+          </p>
+        ) : null}
         <form onSubmit={transfer} className="flex flex-col gap-8">
-          <div className="grid gap-8 sm:grid-cols-2 xl:grid-cols-3">
-            <div className="min-w-0 space-y-2">
-              <Label htmlFor="tf-item">Item</Label>
-              <SearchableNumPicker
-                id="tf-item"
-                options={itemOptions}
-                valueId={itemId}
-                onValueChange={setItemId}
-                placeholder="Search SKU or name…"
-                loading={itemsLoading}
-                emptyListHint="No items"
-                emptyFilterHint="No matching items"
-                variant="underline"
-              />
-            </div>
+          <div className="min-w-0 space-y-2">
+            <Label htmlFor="tf-item">Item</Label>
+            <SearchableNumPicker
+              id="tf-item"
+              options={itemOptions}
+              valueId={itemId}
+              onValueChange={setItemId}
+              placeholder="Search SKU or name…"
+              loading={itemsLoading}
+              disabled={!canEdit}
+              emptyListHint="No items"
+              emptyFilterHint="No matching items"
+              variant="underline"
+            />
+          </div>
+
+          <div className="grid gap-8 sm:grid-cols-2">
             <div className="min-w-0 space-y-2">
               <Label htmlFor="tf-from">From warehouse</Label>
               <SearchableNumPicker
@@ -160,12 +169,13 @@ export default function TransferItemsPage() {
                 }}
                 placeholder="Search warehouse…"
                 loading={warehousesLoading}
+                disabled={!canEdit}
                 emptyListHint="No warehouses"
                 emptyFilterHint="No matching warehouses"
                 variant="underline"
               />
             </div>
-            <div className="min-w-0 space-y-2 sm:col-span-2 xl:col-span-1">
+            <div className="min-w-0 space-y-2">
               <Label htmlFor="tf-to">To warehouse</Label>
               <SearchableNumPicker
                 id="tf-to"
@@ -177,7 +187,7 @@ export default function TransferItemsPage() {
                     ? "Pick source warehouse first"
                     : "Search warehouse…"
                 }
-                disabled={fromW < 1}
+                disabled={fromW < 1 || !canEdit}
                 loading={warehousesLoading}
                 emptyListHint={
                   fromW < 1
@@ -200,12 +210,13 @@ export default function TransferItemsPage() {
               required
               value={qty}
               onChange={(e) => setQty(e.target.value)}
+              disabled={!canEdit}
               className={underlineInputClass}
             />
           </div>
 
           <div className="flex max-w-xl flex-col gap-2 pt-2">
-            <Button type="submit" size="lg" disabled={submitting}>
+            <Button type="submit" size="lg" disabled={submitting || !canEdit}>
               {submitting ? "Transferring…" : "Transfer"}
             </Button>
             {msg ? (

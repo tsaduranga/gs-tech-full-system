@@ -1,6 +1,7 @@
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { pool } from "../db/pool.js";
 import { tableExists, tableHasColumn } from "../db/schemaHints.js";
+import { softDelete, notDeletedClause } from "../db/softDelete.js";
 
 async function insertId(rows: unknown): Promise<number> {
   return (rows as ResultSetHeader).insertId as number;
@@ -9,7 +10,9 @@ async function insertId(rows: unknown): Promise<number> {
 export const mastersModel = {
   customers: {
     async list(): Promise<RowDataPacket[]> {
-      const [rows] = await pool.query(`SELECT * FROM customers ORDER BY id`);
+      const [rows] = await pool.query(
+        `SELECT * FROM customers WHERE ${notDeletedClause()} ORDER BY id`
+      );
       return rows as RowDataPacket[];
     },
 
@@ -19,14 +22,16 @@ export const mastersModel = {
       offset: number;
     }): Promise<{ rows: RowDataPacket[]; total: number }> {
       const q = opts.search?.trim();
-      let whereClause = "";
+      const conditions = [notDeletedClause("c")];
       const params: unknown[] = [];
       if (q) {
-        whereClause =
-          "WHERE c.name LIKE ? OR COALESCE(c.email, '') LIKE ? OR COALESCE(c.phone, '') LIKE ? OR CAST(c.id AS CHAR) LIKE ?";
+        conditions.push(
+          "(c.name LIKE ? OR COALESCE(c.email, '') LIKE ? OR COALESCE(c.phone, '') LIKE ? OR CAST(c.id AS CHAR) LIKE ?)"
+        );
         const like = `%${q}%`;
         params.push(like, like, like, like);
       }
+      const whereClause = `WHERE ${conditions.join(" AND ")}`;
       const [countRows] = await pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) AS c FROM customers c ${whereClause}`,
         params
@@ -42,7 +47,7 @@ export const mastersModel = {
 
     async get(id: number): Promise<RowDataPacket | null> {
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT * FROM customers WHERE id = ? LIMIT 1`,
+        `SELECT * FROM customers WHERE id = ? AND ${notDeletedClause()} LIMIT 1`,
         [id]
       );
       return rows[0] ?? null;
@@ -101,21 +106,20 @@ export const mastersModel = {
       }
       if (!fields.length) return;
       params.push(id);
-      await pool.query(`UPDATE customers SET ${fields.join(", ")} WHERE id = ?`, params);
+      await pool.query(
+        `UPDATE customers SET ${fields.join(", ")} WHERE id = ? AND ${notDeletedClause()}`,
+        params
+      );
     },
 
     async delete(id: number): Promise<boolean> {
-      const [r] = await pool.query<ResultSetHeader>(
-        `DELETE FROM customers WHERE id = ?`,
-        [id]
-      );
-      return (r.affectedRows ?? 0) > 0;
+      return softDelete("customers", id);
     },
     async assignedForUser(userId: number): Promise<RowDataPacket[]> {
       const [rows] = await pool.query(
         `SELECT c.* FROM customers c
          INNER JOIN user_customers uc ON uc.customer_id = c.id
-         WHERE uc.user_id = ?`,
+         WHERE uc.user_id = ? AND ${notDeletedClause("c")}`,
         [userId]
       );
       return rows as RowDataPacket[];
@@ -132,7 +136,9 @@ export const mastersModel = {
   },
   suppliers: {
     async list(): Promise<RowDataPacket[]> {
-      const [rows] = await pool.query(`SELECT * FROM suppliers ORDER BY id`);
+      const [rows] = await pool.query(
+        `SELECT * FROM suppliers WHERE ${notDeletedClause()} ORDER BY id`
+      );
       return rows as RowDataPacket[];
     },
 
@@ -142,14 +148,16 @@ export const mastersModel = {
       offset: number;
     }): Promise<{ rows: RowDataPacket[]; total: number }> {
       const q = opts.search?.trim();
-      let whereClause = "";
+      const conditions = [notDeletedClause("s")];
       const params: unknown[] = [];
       if (q) {
-        whereClause =
-          "WHERE s.name LIKE ? OR COALESCE(s.email, '') LIKE ? OR COALESCE(s.phone, '') LIKE ? OR CAST(s.id AS CHAR) LIKE ?";
+        conditions.push(
+          "(s.name LIKE ? OR COALESCE(s.email, '') LIKE ? OR COALESCE(s.phone, '') LIKE ? OR CAST(s.id AS CHAR) LIKE ?)"
+        );
         const like = `%${q}%`;
         params.push(like, like, like, like);
       }
+      const whereClause = `WHERE ${conditions.join(" AND ")}`;
       const [countRows] = await pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) AS c FROM suppliers s ${whereClause}`,
         params
@@ -165,7 +173,7 @@ export const mastersModel = {
 
     async get(id: number): Promise<RowDataPacket | null> {
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT * FROM suppliers WHERE id = ? LIMIT 1`,
+        `SELECT * FROM suppliers WHERE id = ? AND ${notDeletedClause()} LIMIT 1`,
         [id]
       );
       return rows[0] ?? null;
@@ -225,15 +233,14 @@ export const mastersModel = {
       }
       if (!fields.length) return;
       params.push(id);
-      await pool.query(`UPDATE suppliers SET ${fields.join(", ")} WHERE id = ?`, params);
+      await pool.query(
+        `UPDATE suppliers SET ${fields.join(", ")} WHERE id = ? AND ${notDeletedClause()}`,
+        params
+      );
     },
 
     async delete(id: number): Promise<boolean> {
-      const [r] = await pool.query<ResultSetHeader>(
-        `DELETE FROM suppliers WHERE id = ?`,
-        [id]
-      );
-      return (r.affectedRows ?? 0) > 0;
+      return softDelete("suppliers", id);
     },
 
     async assignToUser(userId: number, supplierIds: number[]): Promise<void> {
@@ -248,7 +255,9 @@ export const mastersModel = {
   },
   warehouses: {
     async list(): Promise<RowDataPacket[]> {
-      const [rows] = await pool.query(`SELECT * FROM warehouses ORDER BY id`);
+      const [rows] = await pool.query(
+        `SELECT * FROM warehouses WHERE ${notDeletedClause()} ORDER BY id`
+      );
       return rows as RowDataPacket[];
     },
 
@@ -258,14 +267,14 @@ export const mastersModel = {
       offset: number;
     }): Promise<{ rows: RowDataPacket[]; total: number }> {
       const q = opts.search?.trim();
-      let whereClause = "";
+      const conditions = [notDeletedClause("w")];
       const params: unknown[] = [];
       if (q) {
-        whereClause =
-          "WHERE w.code LIKE ? OR w.name LIKE ? OR CAST(w.id AS CHAR) LIKE ?";
+        conditions.push("(w.code LIKE ? OR w.name LIKE ? OR CAST(w.id AS CHAR) LIKE ?)");
         const like = `%${q}%`;
         params.push(like, like, like);
       }
+      const whereClause = `WHERE ${conditions.join(" AND ")}`;
       const [countRows] = await pool.query<RowDataPacket[]>(
         `SELECT COUNT(*) AS c FROM warehouses w ${whereClause}`,
         params
@@ -281,7 +290,7 @@ export const mastersModel = {
 
     async get(id: number): Promise<RowDataPacket | null> {
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT * FROM warehouses WHERE id = ? LIMIT 1`,
+        `SELECT * FROM warehouses WHERE id = ? AND ${notDeletedClause()} LIMIT 1`,
         [id]
       );
       return rows[0] ?? null;
@@ -314,20 +323,21 @@ export const mastersModel = {
       }
       if (!fields.length) return;
       params.push(id);
-      await pool.query(`UPDATE warehouses SET ${fields.join(", ")} WHERE id = ?`, params);
+      await pool.query(
+        `UPDATE warehouses SET ${fields.join(", ")} WHERE id = ? AND ${notDeletedClause()}`,
+        params
+      );
     },
 
     async delete(id: number): Promise<boolean> {
-      const [r] = await pool.query<ResultSetHeader>(
-        `DELETE FROM warehouses WHERE id = ?`,
-        [id]
-      );
-      return (r.affectedRows ?? 0) > 0;
+      return softDelete("warehouses", id);
     },
   },
   items: {
     async list(): Promise<RowDataPacket[]> {
-      const [rows] = await pool.query(`SELECT * FROM items ORDER BY id`);
+      const [rows] = await pool.query(
+        `SELECT * FROM items WHERE ${notDeletedClause()} ORDER BY id`
+      );
       return rows as RowDataPacket[];
     },
 
@@ -347,7 +357,7 @@ export const mastersModel = {
         (await tableExists("catalog_subcategories"));
 
       const q = opts.search?.trim();
-      const conditions: string[] = [];
+      const conditions: string[] = [notDeletedClause("i")];
       const params: unknown[] = [];
 
       const categoryFilterExpr = catJoin
@@ -466,7 +476,7 @@ export const mastersModel = {
     async distinctCategories(): Promise<string[]> {
       if (!(await tableHasColumn("items", "category"))) return [];
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT DISTINCT category FROM items WHERE category IS NOT NULL AND TRIM(category) <> '' ORDER BY category`
+        `SELECT DISTINCT category FROM items WHERE category IS NOT NULL AND TRIM(category) <> '' AND ${notDeletedClause()} ORDER BY category`
       );
       return rows.map((r) => String(r.category));
     },
@@ -509,7 +519,7 @@ export const mastersModel = {
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT ${selectFields} FROM items i ${joinSql} WHERE i.id = ? LIMIT 1`,
+        `SELECT ${selectFields} FROM items i ${joinSql} WHERE i.id = ? AND ${notDeletedClause("i")} LIMIT 1`,
         [id]
       );
       return rows[0] ?? null;
@@ -611,15 +621,14 @@ export const mastersModel = {
       }
       if (!fields.length) return;
       params.push(id);
-      await pool.query(`UPDATE items SET ${fields.join(", ")} WHERE id = ?`, params);
+      await pool.query(
+        `UPDATE items SET ${fields.join(", ")} WHERE id = ? AND ${notDeletedClause()}`,
+        params
+      );
     },
 
     async delete(id: number): Promise<boolean> {
-      const [r] = await pool.query<ResultSetHeader>(
-        `DELETE FROM items WHERE id = ?`,
-        [id]
-      );
-      return (r.affectedRows ?? 0) > 0;
+      return softDelete("items", id);
     },
   },
 
@@ -668,7 +677,10 @@ export const mastersModel = {
               ? "COALESCE(i.category, '')"
               : null;
 
-      const conditions: string[] = [];
+      const conditions: string[] = [
+        notDeletedClause("i"),
+        notDeletedClause("w"),
+      ];
       const params: unknown[] = [];
 
       if (opts.warehouse_id != null && opts.warehouse_id > 0) {

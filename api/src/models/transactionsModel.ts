@@ -1,5 +1,6 @@
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { pool } from "../db/pool.js";
+import { notDeletedClause } from "../db/softDelete.js";
 import { adjustStockConn } from "./stockAdjust.js";
 function nextOrderNumber(prefix: string): string {
   return `${prefix}-${Date.now()}`;
@@ -147,7 +148,7 @@ LEFT JOIN users u ON u.id = po.created_by`;
           );
           /** default warehouse 1 assumption — use first active warehouse id */
           const [[wh]] = await conn.query<RowDataPacket[]>(
-            `SELECT id FROM warehouses WHERE is_active = 1 ORDER BY id LIMIT 1`
+            `SELECT id FROM warehouses WHERE is_active = 1 AND ${notDeletedClause()} ORDER BY id LIMIT 1`
           );
           if (!wh) throw new Error("No active warehouse");
 
@@ -572,7 +573,7 @@ LEFT JOIN users u ON u.id = i.created_by`;
             [input.invoiceId]
           );
           const [[wh]] = await conn.query<RowDataPacket[]>(
-            `SELECT id FROM warehouses WHERE is_active = 1 ORDER BY id LIMIT 1`
+            `SELECT id FROM warehouses WHERE is_active = 1 AND ${notDeletedClause()} ORDER BY id LIMIT 1`
           );
           if (wh) {
             for (const ln of lines) {
@@ -765,6 +766,7 @@ LEFT JOIN invoices inv ON inv.id = rj.invoice_id`;
          LEFT JOIN invoices inv ON inv.created_by = u.id
           AND inv.invoice_date >= DATE_SUB(CURDATE(), INTERVAL ? MONTH)
           AND inv.status NOT IN ('VOID','DRAFT')
+         WHERE ${notDeletedClause("u")}
          GROUP BY u.id, u.username ORDER BY total_sales DESC`,
         [months]
       );
@@ -775,7 +777,7 @@ LEFT JOIN invoices inv ON inv.id = rj.invoice_id`;
       const [rows] = await pool.query(
         `SELECT u.username, COUNT(*) AS jobs
          FROM repair_jobs rj
-         JOIN users u ON u.id = rj.technician_user_id
+         JOIN users u ON u.id = rj.technician_user_id AND ${notDeletedClause("u")}
          WHERE rj.technician_user_id IS NOT NULL
          GROUP BY u.id ORDER BY jobs DESC`
       );
@@ -819,6 +821,7 @@ LEFT JOIN invoices inv ON inv.id = rj.invoice_id`;
         `SELECT u.username, COUNT(i.id) AS cnt, COALESCE(SUM(i.total),0) AS amount
          FROM users u
          LEFT JOIN invoices i ON i.created_by = u.id
+         WHERE ${notDeletedClause("u")}
          GROUP BY u.id ORDER BY amount DESC`
       );
       return rows as RowDataPacket[];

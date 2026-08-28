@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { apiJson } from "@/lib/api";
+import { useRouteAccess } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 import { CatalogIdCombobox } from "@/components/catalog-id-combobox";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
@@ -54,6 +55,7 @@ export default function SalesOrdersPage() {
   const [itemsLoading, setItemsLoading] = useState(true);
   const [customers, setCustomers] = useState<CustomerBrief[]>([]);
   const [items, setItems] = useState<ItemBrief[]>([]);
+  const { canEdit } = useRouteAccess();
 
   useEffect(() => {
     let cancelled = false;
@@ -139,6 +141,24 @@ export default function SalesOrdersPage() {
     setCustomerId(0);
     setOrderDate(new Date().toISOString().slice(0, 10));
     setLines([newLine()]);
+  }
+
+  if (!canEdit) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+          <p className="text-muted-foreground">
+            You have view-only access for this module.
+          </p>
+          <Link
+            href="/dashboard/sales-order-history"
+            className="font-medium text-primary underline-offset-4 hover:underline"
+          >
+            Sales order history
+          </Link>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

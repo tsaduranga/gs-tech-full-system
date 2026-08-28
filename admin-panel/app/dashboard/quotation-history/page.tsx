@@ -28,6 +28,7 @@ import {
 import { apiJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { CatalogIdCombobox } from "@/components/catalog-id-combobox";
+import { useConfirmDialog } from "@/components/confirm-dialog";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
 import { SearchableStrPicker } from "@/components/searchable-str-picker";
 
@@ -99,6 +100,7 @@ export default function QuotationHistoryPage() {
 
   const [customers, setCustomers] = useState<CustomerBrief[]>([]);
   const [metaLoading, setMetaLoading] = useState(true);
+  const { confirm, dialog: confirmDialog } = useConfirmDialog();
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(total / pageSize)),
@@ -161,10 +163,13 @@ export default function QuotationHistoryPage() {
   }
 
   async function convertQuote(row: QuoteRow) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Convert quotation ${row.quote_number} to an invoice?`)
-    ) {
+    const ok = await confirm({
+      title: "Convert quotation",
+      description: `Convert quotation ${row.quote_number} to an invoice?`,
+      confirmLabel: "Convert",
+      destructive: false,
+    });
+    if (!ok) {
       return;
     }
     setConvertingId(row.id);
@@ -398,6 +403,7 @@ export default function QuotationHistoryPage() {
           </div>
         </div>
       </CardContent>
+      {confirmDialog}
     </Card>
   );
 }

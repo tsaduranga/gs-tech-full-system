@@ -341,19 +341,9 @@ itemsRouter.delete("/:id", requirePermission("items.write"), async (req, res, ne
     if (Number.isNaN(id) || id < 1) throw new HttpError(400, "Invalid item id");
     const exists = await mastersModel.items.get(id);
     if (!exists) throw new HttpError(404, "Item not found");
-    try {
-      const ok = await mastersModel.items.delete(id);
-      if (!ok) throw new HttpError(404, "Item not found");
-      res.status(204).send();
-    } catch (e) {
-      if (isForeignKeyRestriction(e)) {
-        throw new HttpError(
-          409,
-          "Cannot delete item: still referenced by stock, movements, PO lines, quotations, invoices, sales orders, supplier returns, or customer returns."
-        );
-      }
-      throw e;
-    }
+    const ok = await mastersModel.items.delete(id);
+    if (!ok) throw new HttpError(404, "Item not found");
+    res.status(204).send();
   } catch (e) {
     next(e);
   }

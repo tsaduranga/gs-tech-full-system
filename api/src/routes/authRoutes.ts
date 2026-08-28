@@ -46,6 +46,7 @@ authRouter.post("/login", async (req, res, next) => {
       throw new HttpError(403, "Account disabled");
     }
 
+    const permissions = await userModel.getPermissionKeys(u.id);
     const accessToken = signAccessToken({ sub: u.id, username: u.username });
     const { token: refreshToken, jti } = signRefreshToken(u.id);
     await authModel.createRefreshSession(u.id, jti);
@@ -57,7 +58,12 @@ authRouter.post("/login", async (req, res, next) => {
       success: true,
     });
 
-    res.json({ accessToken, refreshToken, user: { id: u.id, username: u.username } });
+    res.json({
+      accessToken,
+      refreshToken,
+      user: { id: u.id, username: u.username },
+      permissions,
+    });
   } catch (e) {
     next(e);
   }
@@ -87,6 +93,13 @@ authRouter.post("/refresh", async (req, res, next) => {
   } catch (e) {
     next(e);
   }
+});
+
+authRouter.get("/me", requireAuth, (req, res) => {
+  res.json({
+    user: { id: req.authUser!.id, username: req.authUser!.username },
+    permissions: req.authUser!.permissions,
+  });
 });
 
 authRouter.post("/logout", requireAuth, async (req, res, next) => {

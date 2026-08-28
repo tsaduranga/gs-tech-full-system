@@ -148,19 +148,9 @@ suppliersRouter.delete("/:id", requirePermission("suppliers.write"), async (req,
     if (Number.isNaN(id) || id < 1) throw new HttpError(400, "Invalid supplier id");
     const exists = await mastersModel.suppliers.get(id);
     if (!exists) throw new HttpError(404, "Supplier not found");
-    try {
-      const ok = await mastersModel.suppliers.delete(id);
-      if (!ok) throw new HttpError(404, "Supplier not found");
-      res.status(204).send();
-    } catch (e) {
-      if (isForeignKeyRestriction(e)) {
-        throw new HttpError(
-          409,
-          "Cannot delete supplier: still referenced by a purchase order."
-        );
-      }
-      throw e;
-    }
+    const ok = await mastersModel.suppliers.delete(id);
+    if (!ok) throw new HttpError(404, "Supplier not found");
+    res.status(204).send();
   } catch (e) {
     next(e);
   }
