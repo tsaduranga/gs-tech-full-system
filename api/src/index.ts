@@ -1,10 +1,20 @@
 import { createServer } from "node:http";
 import { createApp } from "./createApp.js";
 import { env } from "./config/env.js";
+import { runMigrations } from "./db/migrate.js";
 
-const app = createApp();
-const server = createServer(app);
+async function main() {
+  await runMigrations();
 
-server.listen(env.PORT, () => {
-  console.log(`API listening on http://localhost:${env.PORT}`);
+  const app = createApp();
+  const server = createServer(app);
+
+  server.listen(env.PORT, () => {
+    console.log(`API listening on http://localhost:${env.PORT}`);
+  });
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
 });

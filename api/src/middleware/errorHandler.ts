@@ -23,13 +23,17 @@ export function errorHandler(
         : {}),
     });
   }
-  if (env.NODE_ENV === "development") {
-    console.error(err);
+  console.error(err);
+
+  if (err instanceof Error && /Unknown column/i.test(err.message)) {
+    return res.status(503).json({
+      error: "Database migration required",
+      message: err.message,
+    });
   }
+
   return res.status(500).json({
     error: "Internal Server Error",
-    ...(env.NODE_ENV === "development" && err instanceof Error
-      ? { message: err.message }
-      : {}),
+    ...(err instanceof Error && err.message ? { message: err.message } : {}),
   });
 }

@@ -13,6 +13,7 @@ function messageFromBadResponse(data: unknown, fallback: string): string {
 
   const o = data as {
     error?: unknown;
+    message?: unknown;
     details?: {
       fieldErrors?: Record<string, string[] | undefined>;
       formErrors?: string[] | undefined;
@@ -32,7 +33,14 @@ function messageFromBadResponse(data: unknown, fallback: string): string {
   const fe2 = o.details?.formErrors;
   if (fe2?.length) return fe2.join(" • ");
 
-  if (typeof o.error === "string" && o.error.trim()) return o.error.trim();
+  const error =
+    typeof o.error === "string" && o.error.trim() ? o.error.trim() : "";
+  const message =
+    typeof o.message === "string" && o.message.trim() ? o.message.trim() : "";
+
+  if (message && (error === "Internal Server Error" || !error)) return message;
+  if (error) return error;
+  if (message) return message;
   return fallback;
 }
 
