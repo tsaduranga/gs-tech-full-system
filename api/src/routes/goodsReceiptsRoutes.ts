@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { HttpError } from "../utils/httpError.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requirePermission } from "../middleware/requirePermission.js";
 import { operationsModel } from "../models/operationsModel.js";
@@ -45,6 +46,21 @@ goodsReceiptsRouter.get("/", requirePermission("goods_receipts.read"), async (re
     next(e);
   }
 });
+
+goodsReceiptsRouter.get(
+  "/:id",
+  requirePermission("goods_receipts.read"),
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      const row = await operationsModel.goodsReceipts.getById(id);
+      if (!row) return next(new HttpError(404, "Goods receipt not found"));
+      res.json(row);
+    } catch (e) {
+      next(e);
+    }
+  }
+);
 
 goodsReceiptsRouter.get(
   "/:id/lines",

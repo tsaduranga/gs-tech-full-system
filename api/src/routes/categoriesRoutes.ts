@@ -34,7 +34,7 @@ const listQuerySchema = z.object({
   ),
 });
 
-categoriesRouter.get("/", requirePermission("items.read"), async (req, res, next) => {
+categoriesRouter.get("/", requirePermission("categories.read"), async (req, res, next) => {
   try {
     const qp = listQuerySchema.parse(req.query);
     const offset = (qp.page - 1) * qp.pageSize;
@@ -54,7 +54,7 @@ categoriesRouter.get("/", requirePermission("items.read"), async (req, res, next
   }
 });
 
-categoriesRouter.get("/picker", requirePermission("items.read"), async (_req, res, next) => {
+categoriesRouter.get("/picker", requirePermission("categories.read", "items.read"), async (_req, res, next) => {
   try {
     const rows = await catalogModel.categories.listActiveBrief();
     res.json(rows);
@@ -63,7 +63,7 @@ categoriesRouter.get("/picker", requirePermission("items.read"), async (_req, re
   }
 });
 
-categoriesRouter.post("/", requirePermission("items.write"), async (req, res, next) => {
+categoriesRouter.post("/", requirePermission("categories.write"), async (req, res, next) => {
   try {
     const body = z
       .object({
@@ -91,7 +91,7 @@ categoriesRouter.post("/", requirePermission("items.write"), async (req, res, ne
   }
 });
 
-categoriesRouter.get("/:id", requirePermission("items.read"), async (req, res, next) => {
+categoriesRouter.get("/:id", requirePermission("categories.read"), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (Number.isNaN(id) || id < 1) throw new HttpError(400, "Invalid category id");
@@ -111,7 +111,7 @@ categoriesRouter.get("/:id", requirePermission("items.read"), async (req, res, n
   }
 });
 
-categoriesRouter.patch("/:id", requirePermission("items.write"), async (req, res, next) => {
+categoriesRouter.patch("/:id", requirePermission("categories.write"), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (Number.isNaN(id) || id < 1) throw new HttpError(400, "Invalid category id");
@@ -145,7 +145,7 @@ categoriesRouter.patch("/:id", requirePermission("items.write"), async (req, res
   }
 });
 
-categoriesRouter.delete("/:id", requirePermission("items.write"), async (req, res, next) => {
+categoriesRouter.delete("/:id", requirePermission("categories.write"), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (Number.isNaN(id) || id < 1) throw new HttpError(400, "Invalid category id");

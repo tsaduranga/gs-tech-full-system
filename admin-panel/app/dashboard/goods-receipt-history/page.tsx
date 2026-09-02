@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2Icon, SearchIcon } from "lucide-react";
+import { Loader2Icon, SearchIcon, EyeIcon } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -24,6 +24,7 @@ import {
 import { apiJson } from "@/lib/api";
 import { CatalogIdCombobox } from "@/components/catalog-id-combobox";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
+import { GoodsReceiptDetailDialog } from "@/components/goods-receipt-detail-dialog";
 
 type Row = {
   id: number;
@@ -31,6 +32,10 @@ type Row = {
   order_number: string;
   supplier_id: number;
   supplier_name: string;
+  supplier_invoice_number: string | null;
+  warehouse_id: number | null;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
   received_at: string;
   created_by_username: string | null;
 };
@@ -64,6 +69,8 @@ export default function GrnHistoryPage() {
   const [err, setErr] = useState<string | null>(null);
   const [suppliers, setSuppliers] = useState<SupplierBrief[]>([]);
   const [metaLoading, setMetaLoading] = useState(true);
+  const [viewId, setViewId] = useState<number | null>(null);
+  const [viewOpen, setViewOpen] = useState(false);
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(total / pageSize)),
@@ -110,6 +117,11 @@ export default function GrnHistoryPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  function openView(id: number) {
+    setViewId(id);
+    setViewOpen(true);
+  }
 
   return (
     <Card className="w-full border-border/80">
@@ -195,21 +207,24 @@ export default function GrnHistoryPage() {
                 <TableHead className="w-[72px]">GRN id</TableHead>
                 <TableHead>PO #</TableHead>
                 <TableHead>Supplier</TableHead>
+                <TableHead>Supplier invoice #</TableHead>
+                <TableHead>Warehouse</TableHead>
                 <TableHead>Received</TableHead>
                 <TableHead>By</TableHead>
+                <TableHead className="w-[72px] text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="h-24 text-center">
+                  <TableCell colSpan={8} className="h-24 text-center">
                     <Loader2Icon className="mx-auto size-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : list.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={8}
                     className="h-24 text-center text-muted-foreground"
                   >
                     No receipts found.
@@ -235,11 +250,30 @@ export default function GrnHistoryPage() {
                         ({r.supplier_id})
                       </span>
                     </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {r.supplier_invoice_number?.trim() || "—"}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {r.warehouse_code
+                        ? `${r.warehouse_code}${r.warehouse_name ? ` — ${r.warehouse_name}` : ""}`
+                        : "—"}
+                    </TableCell>
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {fmt(r.received_at)}
                     </TableCell>
                     <TableCell className="text-sm">
                       {r.created_by_username ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label={`View goods receipt ${r.id}`}
+                        onClick={() => openView(r.id)}
+                      >
+                        <EyeIcon className="size-4" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))
@@ -278,6 +312,11 @@ export default function GrnHistoryPage() {
           </div>
         </div>
       </CardContent>
+      <GoodsReceiptDetailDialog
+        grnId={viewId}
+        open={viewOpen}
+        onOpenChange={setViewOpen}
+      />
     </Card>
   );
 }

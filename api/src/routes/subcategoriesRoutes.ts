@@ -39,7 +39,7 @@ const listQuerySchema = z.object({
   }, z.coerce.number().int().min(1).optional()),
 });
 
-subcategoriesRouter.get("/", requirePermission("items.read"), async (req, res, next) => {
+subcategoriesRouter.get("/", requirePermission("subcategories.read", "items.read"), async (req, res, next) => {
   try {
     const qp = listQuerySchema.parse(req.query);
     const offset = (qp.page - 1) * qp.pageSize;
@@ -70,7 +70,7 @@ subcategoriesRouter.get("/", requirePermission("items.read"), async (req, res, n
   }
 });
 
-subcategoriesRouter.post("/", requirePermission("items.write"), async (req, res, next) => {
+subcategoriesRouter.post("/", requirePermission("subcategories.write"), async (req, res, next) => {
   try {
     const body = z
       .object({
@@ -105,7 +105,7 @@ subcategoriesRouter.post("/", requirePermission("items.write"), async (req, res,
   }
 });
 
-subcategoriesRouter.get("/:id", requirePermission("items.read"), async (req, res, next) => {
+subcategoriesRouter.get("/:id", requirePermission("subcategories.read"), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (Number.isNaN(id) || id < 1) throw new HttpError(400, "Invalid subcategory id");
@@ -128,7 +128,7 @@ subcategoriesRouter.get("/:id", requirePermission("items.read"), async (req, res
   }
 });
 
-subcategoriesRouter.patch("/:id", requirePermission("items.write"), async (req, res, next) => {
+subcategoriesRouter.patch("/:id", requirePermission("subcategories.write"), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (Number.isNaN(id) || id < 1) throw new HttpError(400, "Invalid subcategory id");
@@ -172,7 +172,7 @@ subcategoriesRouter.patch("/:id", requirePermission("items.write"), async (req, 
   }
 });
 
-subcategoriesRouter.delete("/:id", requirePermission("items.write"), async (req, res, next) => {
+subcategoriesRouter.delete("/:id", requirePermission("subcategories.write"), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (Number.isNaN(id) || id < 1) throw new HttpError(400, "Invalid subcategory id");

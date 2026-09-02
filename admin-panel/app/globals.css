@@ -129,6 +129,17 @@
   html {
     @apply font-sans;
   }
+  @keyframes app-loading-bar {
+    0% {
+      transform: translateX(-120%);
+    }
+    100% {
+      transform: translateX(320%);
+    }
+  }
+  .app-loading-bar {
+    animation: app-loading-bar 1.35s ease-in-out infinite;
+  }
   a[href],
   button:not(:disabled),
   label[for],

@@ -10,6 +10,14 @@ export const PERMISSIONS = [
   "suppliers.write",
   "warehouses.read",
   "warehouses.write",
+  "categories.read",
+  "categories.write",
+  "subcategories.read",
+  "subcategories.write",
+  "customer_warranties.read",
+  "customer_warranties.write",
+  "supplier_warranties.read",
+  "supplier_warranties.write",
   "items.read",
   "items.write",
   "stock.read",
@@ -30,6 +38,8 @@ export const PERMISSIONS = [
   "supplier_returns.write",
   "customer_returns.read",
   "customer_returns.write",
+  "settings.read",
+  "settings.write",
 ] as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[number];

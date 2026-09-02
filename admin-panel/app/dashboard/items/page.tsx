@@ -41,7 +41,17 @@ import { apiJson } from "@/lib/api";
 import { useRouteAccess } from "@/lib/auth-context";
 import { CatalogIdCombobox } from "@/components/catalog-id-combobox";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
+import { SearchableMultiNumPicker } from "@/components/searchable-multi-num-picker";
 import { useConfirmDialog } from "@/components/confirm-dialog";
+import { formatWarrantyDisplay } from "@/lib/warranty-format";
+import {
+  calculateUnitPriceFromActualCost,
+  DEFAULT_ITEM_TAX_RATES,
+  formatTaxPercent,
+  pricingBreakdown,
+  taxRatesFromApi,
+  type ItemTaxRates,
+} from "@/lib/item-pricing";
 
 const textareaClass =
   "min-h-[72px] w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:border-destructive/50";
@@ -55,12 +65,28 @@ function parsePositiveMoney(v: unknown): number {
   return Number.isFinite(n) ? n : Number.NaN;
 }
 
+function parseNonNegativeMoney(v: unknown): number {
+  if (typeof v === "number") return Number.isFinite(v) ? v : Number.NaN;
+  const t = String(v ?? "").trim();
+  if (t === "") return 0;
+  const n = parseFloat(t.replace(",", "."));
+  return Number.isFinite(n) ? n : Number.NaN;
+}
+
 function parseReorderLevel(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? Math.trunc(v) : Number.NaN;
   const t = String(v ?? "").trim();
   if (t === "") return Number.NaN;
   const n = parseFloat(t.replace(",", "."));
   return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : Number.NaN;
+}
+
+function parseNonNegativeInt(v: unknown): number {
+  if (typeof v === "number") return Number.isFinite(v) ? Math.trunc(v) : Number.NaN;
+  const t = String(v ?? "").trim();
+  if (t === "") return 0;
+  const n = parseInt(t, 10);
+  return Number.isFinite(n) ? n : Number.NaN;
 }
 
 function fieldErrorCls() {
@@ -78,11 +104,26 @@ type ItemRow = {
   description: string | null;
   unit_cost: number;
   unit_price: number;
+  minimum_price: number;
   reorder_level: number;
+  customer_warranty_ids?: number[];
+  customer_warranty_label?: string;
+  supplier_warranty_ids?: number[];
+  supplier_warranty_label?: string;
+  supplier_ids?: number[];
   is_active: boolean;
   created_at: string;
   updated_at: string;
 };
+
+type WarrantyPickerRow = {
+  id: number;
+  name: string;
+  warranty_years: number;
+  warranty_months: number;
+};
+
+type SupplierPickerRow = { id: number; name: string };
 
 type CatalogPickerRow = { id: number; name: string };
 
@@ -98,7 +139,7 @@ type ItemListResponse = {
 const PAGE_OPTIONS = [5, 10, 25, 50];
 
 const itemFormSchema = z.object({
-  sku: z.string().trim().min(1, "SKU is required").max(100),
+  sku: z.string().trim().min(1, "Serial number is required").max(100),
   name: z.string().trim().min(1, "Name is required").max(255),
   catalog_category_id: z.coerce
     .number()
@@ -112,16 +153,31 @@ const itemFormSchema = z.object({
   unit_cost: z
     .union([z.number(), z.string()])
     .transform(parsePositiveMoney)
-    .pipe(z.number({ error: "" }).finite().positive("Unit cost must be greater than zero")),
+    .pipe(z.number({ error: "" }).finite().positive("Actual cost must be greater than zero")),
   unit_price: z
     .union([z.number(), z.string()])
     .transform(parsePositiveMoney)
     .pipe(z.number({ error: "" }).finite().positive("Unit price must be greater than zero")),
+  minimum_price: z
+    .union([z.number(), z.string()])
+    .transform(parseNonNegativeMoney)
+    .pipe(z.number({ error: "" }).finite().min(0, "Minimum price cannot be negative")),
   reorder_level: z
     .union([z.number(), z.string()])
     .transform(parseReorderLevel)
     .pipe(z.number({ error: "" }).finite().int().min(0, "Reorder level is required")),
+  customer_warranty_ids: z.array(z.coerce.number().int().min(1)).default([]),
+  supplier_warranty_ids: z.array(z.coerce.number().int().min(1)).default([]),
+  supplier_ids: z.array(z.coerce.number().int().min(1)).default([]),
   is_active: z.boolean(),
+}).superRefine((data, ctx) => {
+  if (data.minimum_price < data.unit_price) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Minimum price cannot be less than unit price",
+      path: ["minimum_price"],
+    });
+  }
 });
 
 type ItemFormValues = z.output<typeof itemFormSchema>;
@@ -145,7 +201,13 @@ export default function ItemsPage() {
   const [filterInput, setFilterInput] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
   const [pickerCategories, setPickerCategories] = useState<CatalogPickerRow[]>([]);
+  const [pickerWarranties, setPickerWarranties] = useState<WarrantyPickerRow[]>([]);
+  const [pickerSupplierWarranties, setPickerSupplierWarranties] = useState<WarrantyPickerRow[]>([]);
+  const [pickerSuppliers, setPickerSuppliers] = useState<SupplierPickerRow[]>([]);
   const [pickerLoading, setPickerLoading] = useState(true);
+  const [warrantyPickerLoading, setWarrantyPickerLoading] = useState(true);
+  const [supplierWarrantyPickerLoading, setSupplierWarrantyPickerLoading] = useState(true);
+  const [supplierPickerLoading, setSupplierPickerLoading] = useState(true);
   const [listCatalogCategoryId, setListCatalogCategoryId] = useState(0);
   const [listSubcategoryId, setListSubcategoryId] = useState(0);
   const [listSubChoices, setListSubChoices] = useState<SubcategoryPickerRow[]>(
@@ -160,6 +222,7 @@ export default function ItemsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [taxRates, setTaxRates] = useState<ItemTaxRates>(DEFAULT_ITEM_TAX_RATES);
   const { confirm, dialog: confirmDialog } = useConfirmDialog();
   const { canEdit } = useRouteAccess();
 
@@ -172,7 +235,11 @@ export default function ItemsPage() {
       description: "",
       unit_cost: 0,
       unit_price: 0,
+      minimum_price: 0,
       reorder_level: 0,
+      customer_warranty_ids: [],
+      supplier_warranty_ids: [],
+      supplier_ids: [],
       is_active: true,
     }),
     []
@@ -198,6 +265,73 @@ export default function ItemsPage() {
   const isActiveVal = watch("is_active");
   const watchedCategoryId = watch("catalog_category_id");
   const watchedSubcategoryId = watch("subcategory_id");
+  const watchedCustomerWarrantyIds = watch("customer_warranty_ids");
+  const watchedSupplierWarrantyIds = watch("supplier_warranty_ids");
+  const watchedSupplierIds = watch("supplier_ids");
+  const watchedActualCost = watch("unit_cost");
+  const watchedUnitPrice = watch("unit_price");
+
+  const priceBreakdown = useMemo(
+    () => pricingBreakdown(Number(watchedActualCost), taxRates),
+    [watchedActualCost, taxRates]
+  );
+
+  const loadTaxRates = useCallback(async () => {
+    const res = await apiJson<{ sscl_rate: number; vat_rate: number }>("/settings");
+    if (res.ok && res.data) {
+      setTaxRates(taxRatesFromApi(res.data));
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadTaxRates();
+  }, [loadTaxRates]);
+
+  useEffect(() => {
+    const cost = Number(watchedActualCost);
+    if (!Number.isFinite(cost) || cost <= 0) return;
+    setValue("unit_price", calculateUnitPriceFromActualCost(cost, taxRates), {
+      shouldValidate: true,
+    });
+    // Recalculate when tax rates load or change in Settings — not on every cost keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- watchedActualCost read once per taxRates change
+  }, [taxRates]);
+
+  function applyPriceFromActualCost(raw: unknown) {
+    const cost =
+      typeof raw === "number"
+        ? raw
+        : parsePositiveMoney(raw);
+    if (!Number.isFinite(cost) || cost <= 0) return;
+    setValue("unit_price", calculateUnitPriceFromActualCost(cost, taxRates), {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    void form.trigger("minimum_price");
+  }
+
+  const warrantyOptions = useMemo(
+    () =>
+      pickerWarranties.map((w) => ({
+        value: w.id,
+        label: formatWarrantyDisplay(w.name, w.warranty_years, w.warranty_months),
+      })),
+    [pickerWarranties]
+  );
+
+  const supplierWarrantyOptions = useMemo(
+    () =>
+      pickerSupplierWarranties.map((w) => ({
+        value: w.id,
+        label: formatWarrantyDisplay(w.name, w.warranty_years, w.warranty_months),
+      })),
+    [pickerSupplierWarranties]
+  );
+
+  const supplierOptions = useMemo(
+    () => pickerSuppliers.map((s) => ({ value: s.id, label: s.name })),
+    [pickerSuppliers]
+  );
 
   const refreshPickerCategories = useCallback(async () => {
     setPickerLoading(true);
@@ -210,6 +344,36 @@ export default function ItemsPage() {
   useEffect(() => {
     void refreshPickerCategories();
   }, [refreshPickerCategories]);
+
+  const refreshPickerWarranties = useCallback(async () => {
+    setWarrantyPickerLoading(true);
+    const res = await apiJson<WarrantyPickerRow[]>("/warranties/picker?type=customer");
+    if (res.ok && Array.isArray(res.data)) setPickerWarranties(res.data);
+    else setPickerWarranties([]);
+    setWarrantyPickerLoading(false);
+  }, []);
+
+  const refreshPickerSupplierWarranties = useCallback(async () => {
+    setSupplierWarrantyPickerLoading(true);
+    const res = await apiJson<WarrantyPickerRow[]>("/warranties/picker?type=supplier");
+    if (res.ok && Array.isArray(res.data)) setPickerSupplierWarranties(res.data);
+    else setPickerSupplierWarranties([]);
+    setSupplierWarrantyPickerLoading(false);
+  }, []);
+
+  const refreshPickerSuppliers = useCallback(async () => {
+    setSupplierPickerLoading(true);
+    const res = await apiJson<SupplierPickerRow[]>("/suppliers/picker");
+    if (res.ok && Array.isArray(res.data)) setPickerSuppliers(res.data);
+    else setPickerSuppliers([]);
+    setSupplierPickerLoading(false);
+  }, []);
+
+  useEffect(() => {
+    void refreshPickerWarranties();
+    void refreshPickerSupplierWarranties();
+    void refreshPickerSuppliers();
+  }, [refreshPickerWarranties, refreshPickerSupplierWarranties, refreshPickerSuppliers]);
 
   useEffect(() => {
     let cancelled = false;
@@ -343,7 +507,15 @@ export default function ItemsPage() {
       description: row.description ?? "",
       unit_cost: Number(row.unit_cost),
       unit_price: Number(row.unit_price),
+      minimum_price: Number(row.minimum_price ?? 0),
       reorder_level: Number(row.reorder_level),
+      customer_warranty_ids: Array.isArray(row.customer_warranty_ids)
+        ? row.customer_warranty_ids
+        : [],
+      supplier_warranty_ids: Array.isArray(row.supplier_warranty_ids)
+        ? row.supplier_warranty_ids
+        : [],
+      supplier_ids: Array.isArray(row.supplier_ids) ? row.supplier_ids : [],
       is_active: Boolean(row.is_active),
     });
     clearErrors();
@@ -358,7 +530,15 @@ export default function ItemsPage() {
         description: res.data.description ?? "",
         unit_cost: Number(res.data.unit_cost),
         unit_price: Number(res.data.unit_price),
+        minimum_price: Number(res.data.minimum_price ?? 0),
         reorder_level: Number(res.data.reorder_level),
+        customer_warranty_ids: Array.isArray(res.data.customer_warranty_ids)
+          ? res.data.customer_warranty_ids
+          : [],
+        supplier_warranty_ids: Array.isArray(res.data.supplier_warranty_ids)
+          ? res.data.supplier_warranty_ids
+          : [],
+        supplier_ids: Array.isArray(res.data.supplier_ids) ? res.data.supplier_ids : [],
         is_active: Boolean(res.data.is_active),
       });
     }
@@ -374,7 +554,11 @@ export default function ItemsPage() {
       description: descTrim === "" ? null : descTrim,
       unit_cost: data.unit_cost,
       unit_price: data.unit_price,
+      minimum_price: data.minimum_price,
       reorder_level: data.reorder_level,
+      customer_warranty_ids: data.customer_warranty_ids ?? [],
+      supplier_warranty_ids: data.supplier_warranty_ids ?? [],
+      supplier_ids: data.supplier_ids ?? [],
       is_active: data.is_active,
     };
   }
@@ -471,7 +655,7 @@ export default function ItemsPage() {
         <div>
           <CardTitle>Items</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Product catalogue: SKU, pricing, categories, and reorder levels.
+            Product catalogue: serial numbers, pricing, categories, and reorder levels.
           </p>
         </div>
         {canEdit ? (
@@ -488,7 +672,7 @@ export default function ItemsPage() {
             <div className="flex gap-2">
               <Input
                 id="it-filter"
-                placeholder="SKU, name, description, category, or id…"
+                placeholder="Serial number, name, description, category, or id…"
                 value={filterInput}
                 onChange={(e) => setFilterInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && applyFilter()}
@@ -568,11 +752,13 @@ export default function ItemsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead className="w-12">Id</TableHead>
-                <TableHead className="min-w-[100px]">SKU</TableHead>
+                <TableHead className="min-w-[100px]">Serial number</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead className="min-w-[100px]">Category</TableHead>
                 <TableHead className="min-w-[100px]">Subcategory</TableHead>
+                <TableHead className="min-w-[140px]">Warranties</TableHead>
                 <TableHead className="text-right">Price</TableHead>
+                <TableHead className="text-right">Min price</TableHead>
                 <TableHead className="text-right">Reorder</TableHead>
                 <TableHead className="w-[64px]">Active</TableHead>
                 <TableHead className="w-[88px]">Updated</TableHead>
@@ -584,14 +770,14 @@ export default function ItemsPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={10} className="h-24 text-center">
+                  <TableCell colSpan={canEdit ? 12 : 11} className="h-24 text-center">
                     <Loader2Icon className="mx-auto size-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : list.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={10}
+                    colSpan={canEdit ? 12 : 11}
                     className="h-24 text-center text-muted-foreground"
                   >
                     No rows to display.
@@ -613,8 +799,16 @@ export default function ItemsPage() {
                     <TableCell className="text-muted-foreground text-sm">
                       {row.subcategory_name ?? "—"}
                     </TableCell>
+                    <TableCell className="max-w-[180px] truncate text-muted-foreground text-sm">
+                      {row.customer_warranty_label?.trim()
+                        ? row.customer_warranty_label
+                        : "—"}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums text-sm">
                       {fmtMoney(row.unit_price)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-sm">
+                      {fmtMoney(row.minimum_price ?? 0)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-sm">
                       {fmtMoney(row.reorder_level)}
@@ -696,7 +890,7 @@ export default function ItemsPage() {
       >
         <DialogContent
           showCloseButton
-          className="flex max-h-[min(92vh,calc(100vh-2rem))] max-w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl"
+          className="flex max-h-[min(92vh,calc(100vh-2rem))] max-w-[calc(100vw-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl lg:max-w-5xl"
         >
           <form
             className="flex max-h-[min(88vh,calc(100vh-4rem))] flex-col gap-3"
@@ -711,7 +905,7 @@ export default function ItemsPage() {
             <div className="flex-1 space-y-3 overflow-y-auto px-4 pb-1">
               <div className="grid gap-2">
                 <Label htmlFor="it-sku">
-                  SKU<span className="text-destructive">*</span>
+                  Serial number<span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="it-sku"
@@ -721,12 +915,6 @@ export default function ItemsPage() {
                   )}
                   autoComplete="off"
                   aria-invalid={Boolean(formState.errors.sku)}
-                  disabled={editingId != null}
-                  title={
-                    editingId != null
-                      ? "SKU is fixed after create to avoid breaking references."
-                      : undefined
-                  }
                   {...register("sku")}
                 />
                 {formState.errors.sku?.message ? (
@@ -837,76 +1025,210 @@ export default function ItemsPage() {
                 ) : null}
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-3">
-                <div className="grid gap-2">
-                  <Label htmlFor="it-cost">
-                    Unit cost<span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="it-cost"
-                    type="number"
-                    step="any"
-                    min={0.0001}
-                    aria-invalid={Boolean(formState.errors.unit_cost)}
-                    className={cn(
-                      "tabular-nums",
-                      formState.errors.unit_cost && "border-destructive"
-                    )}
-                    {...register("unit_cost")}
-                  />
-                  {formState.errors.unit_cost?.message ? (
-                    <p className={fieldErrorCls()} role="alert">
-                      {String(formState.errors.unit_cost.message)}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="it-price">
-                    Unit price<span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="it-price"
-                    type="number"
-                    step="any"
-                    min={0.0001}
-                    aria-invalid={Boolean(formState.errors.unit_price)}
-                    className={cn(
-                      "tabular-nums",
-                      formState.errors.unit_price && "border-destructive"
-                    )}
-                    {...register("unit_price")}
-                  />
-                  {formState.errors.unit_price?.message ? (
-                    <p className={fieldErrorCls()} role="alert">
-                      {String(formState.errors.unit_price.message)}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="it-reorder">
-                    Reorder level<span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="it-reorder"
-                    type="number"
-                    step={1}
-                    min={0}
-                    aria-invalid={Boolean(formState.errors.reorder_level)}
-                    className={cn(
-                      "tabular-nums",
-                      formState.errors.reorder_level && "border-destructive"
-                    )}
-                    {...register("reorder_level")}
-                  />
-                  {formState.errors.reorder_level?.message ? (
-                    <p className={fieldErrorCls()} role="alert">
-                      {String(formState.errors.reorder_level.message)}
-                    </p>
-                  ) : null}
+              <div className="rounded-lg border border-border/70 bg-muted/10 p-4">
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="grid gap-2">
+                    <Label htmlFor="it-customer-warranties">Customer warranties</Label>
+                    <SearchableMultiNumPicker
+                      id="it-customer-warranties"
+                      options={warrantyOptions}
+                      valueIds={watchedCustomerWarrantyIds ?? []}
+                      onValueChange={(ids) =>
+                        setValue("customer_warranty_ids", ids, {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                      loading={warrantyPickerLoading}
+                      placeholder="Search customer warranties…"
+                      emptyListHint="No customer warranties — add under Master Data → Customer Warranties"
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="it-supplier-warranties">Supplier warranties</Label>
+                    <SearchableMultiNumPicker
+                      id="it-supplier-warranties"
+                      options={supplierWarrantyOptions}
+                      valueIds={watchedSupplierWarrantyIds ?? []}
+                      onValueChange={(ids) =>
+                        setValue("supplier_warranty_ids", ids, {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                      loading={supplierWarrantyPickerLoading}
+                      placeholder="Search supplier warranties…"
+                      emptyListHint="No supplier warranties — add under Master Data → Supplier Warranties"
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="rounded-lg border border-border/70 bg-muted/10 p-4">
+                <div className="grid gap-2">
+                  <Label htmlFor="it-suppliers">Suppliers</Label>
+                  <SearchableMultiNumPicker
+                    id="it-suppliers"
+                    options={supplierOptions}
+                    valueIds={watchedSupplierIds ?? []}
+                    onValueChange={(ids) =>
+                      setValue("supplier_ids", ids, {
+                        shouldDirty: true,
+                        shouldValidate: true,
+                      })
+                    }
+                    loading={supplierPickerLoading}
+                    placeholder="Search suppliers…"
+                    emptyListHint="No suppliers — add under Master Data → Suppliers"
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-primary/15 bg-gradient-to-b from-muted/30 to-muted/10 p-4 shadow-sm">
+                <div className="mb-4 space-y-1">
+                  <h3 className="text-sm font-semibold tracking-tight">
+                    Pricing &amp; inventory
+                  </h3>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Unit price is calculated from actual cost with SSCL{" "}
+                    {formatTaxPercent(taxRates.ssclRate)}% and VAT{" "}
+                    {formatTaxPercent(taxRates.vatRate)}%.
+                    Minimum price must be at least the unit price.
+                  </p>
+                </div>
+
+                <div className="grid gap-3 lg:grid-cols-4">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="it-cost" className="leading-none">
+                      Actual cost<span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="it-cost"
+                      type="number"
+                      step="any"
+                      min={0.0001}
+                      aria-invalid={Boolean(formState.errors.unit_cost)}
+                      className={cn(
+                        "h-9 tabular-nums bg-background",
+                        formState.errors.unit_cost && "border-destructive"
+                      )}
+                      {...register("unit_cost", {
+                        onChange: (e) => applyPriceFromActualCost(e.target.value),
+                      })}
+                    />
+                    <div className="min-h-8">
+                      {formState.errors.unit_cost?.message ? (
+                        <p className={fieldErrorCls()} role="alert">
+                          {String(formState.errors.unit_cost.message)}
+                        </p>
+                      ) : (
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          Purchase cost (excl. tax)
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="it-price" className="leading-none">
+                      Unit price<span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="it-price"
+                      type="number"
+                      step="any"
+                      min={0.0001}
+                      readOnly
+                      tabIndex={-1}
+                      aria-invalid={Boolean(formState.errors.unit_price)}
+                      className={cn(
+                        "h-9 tabular-nums border-primary/25 bg-primary/5 font-medium",
+                        formState.errors.unit_price && "border-destructive"
+                      )}
+                      {...register("unit_price")}
+                    />
+                    <div className="min-h-8">
+                      {formState.errors.unit_price?.message ? (
+                        <p className={fieldErrorCls()} role="alert">
+                          {String(formState.errors.unit_price.message)}
+                        </p>
+                      ) : priceBreakdown ? (
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          SSCL {fmtMoney(priceBreakdown.sscl)} ({formatTaxPercent(taxRates.ssclRate)}
+                          %) + VAT {fmtMoney(priceBreakdown.vat)} ({formatTaxPercent(taxRates.vatRate)}
+                          %)
+                        </p>
+                      ) : (
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          Auto-calculated
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="it-min-price" className="leading-none">
+                      Minimum price<span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="it-min-price"
+                      type="number"
+                      step="any"
+                      min={
+                        Number.isFinite(Number(watchedUnitPrice)) && Number(watchedUnitPrice) > 0
+                          ? Number(watchedUnitPrice)
+                          : 0
+                      }
+                      aria-invalid={Boolean(formState.errors.minimum_price)}
+                      className={cn(
+                        "h-9 tabular-nums bg-background",
+                        formState.errors.minimum_price && "border-destructive"
+                      )}
+                      {...register("minimum_price", {
+                        onChange: () => void form.trigger("minimum_price"),
+                      })}
+                    />
+                    <div className="min-h-8">
+                      {formState.errors.minimum_price?.message ? (
+                        <p className={fieldErrorCls()} role="alert">
+                          {String(formState.errors.minimum_price.message)}
+                        </p>
+                      ) : (
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          Floor: {fmtMoney(Number(watchedUnitPrice) || 0)}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-3 border-t border-border/60 pt-3 lg:max-w-sm">
+                  <div className="grid gap-2">
+                    <Label htmlFor="it-reorder">
+                      Reorder level<span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      id="it-reorder"
+                      type="number"
+                      step={1}
+                      min={0}
+                      aria-invalid={Boolean(formState.errors.reorder_level)}
+                      className={cn(
+                        "tabular-nums bg-background",
+                        formState.errors.reorder_level && "border-destructive"
+                      )}
+                      {...register("reorder_level")}
+                    />
+                    {formState.errors.reorder_level?.message ? (
+                      <p className={fieldErrorCls()} role="alert">
+                        {String(formState.errors.reorder_level.message)}
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/10 px-3 py-2.5">
                 <Checkbox
                   id="it-active"
                   checked={Boolean(isActiveVal)}

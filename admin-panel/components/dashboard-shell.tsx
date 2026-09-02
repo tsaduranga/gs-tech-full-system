@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -33,10 +34,10 @@ import {
   Package,
   PieChart,
   Receipt,
+  Settings,
   Shield,
   ShoppingBasket,
   ShoppingCart,
-  Sparkles,
   Truck,
   Undo2,
   UserCircle,
@@ -45,9 +46,13 @@ import {
   Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { apiJson } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { useDashboardFooter } from "@/lib/dashboard-footer-context";
+import { DefaultDashboardFooter } from "@/components/dashboard-footer-bar";
+import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { getRoutePermission } from "@/lib/route-permissions";
 import {
   clearSession,
@@ -83,6 +88,8 @@ const MASTER_DATA_CHILDREN: readonly NavLeaf[] = [
   { href: "/dashboard/warehouses", label: "Warehouses", icon: Warehouse },
   { href: "/dashboard/categories", label: "Categories", icon: FolderTree },
   { href: "/dashboard/subcategories", label: "Subcategories", icon: Layers },
+  { href: "/dashboard/customer-warranties", label: "Customer Warranties", icon: Shield },
+  { href: "/dashboard/supplier-warranties", label: "Supplier Warranties", icon: LifeBuoy },
   { href: "/dashboard/items", label: "Items", icon: Package },
 ] as const;
 
@@ -306,9 +313,41 @@ function NavLinks({
   );
 }
 
+function SettingsFooterLink({ onNavigate }: { onNavigate?: () => void }) {
+  const path = usePathname();
+  const { hasPermission } = useAuth();
+  const config = getRoutePermission("/dashboard/settings");
+  if (!config || !hasPermission(config.view)) return null;
+
+  const active = path === "/dashboard/settings";
+  return (
+    <Link
+      href="/dashboard/settings"
+      onClick={onNavigate}
+      className={cn(
+        "mb-2 flex items-center gap-2.5 rounded-lg px-2 py-2.5 text-sm font-medium transition-colors",
+        active
+          ? "bg-sidebar-primary/12 text-sidebar-foreground ring-1 ring-sidebar-primary/30"
+          : "text-sidebar-foreground/90 hover:bg-sidebar-accent"
+      )}
+      aria-current={active ? "page" : undefined}
+    >
+      <Settings
+        className={cn(
+          "size-[18px] shrink-0",
+          active ? "text-sidebar-primary" : "text-sidebar-foreground/60"
+        )}
+        aria-hidden
+      />
+      Settings
+    </Link>
+  );
+}
+
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { loading: authLoading, user, hasPermission } = useAuth();
+  const { footer: pageFooter } = useDashboardFooter();
   const [ready, setReady] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -383,13 +422,17 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   const mobileHeader = useMemo(
     () => (
-      <div className="mb-4 flex items-center gap-2 border-b border-sidebar-border pb-4">
-        <div className="flex size-9 items-center justify-center rounded-lg bg-sidebar-primary/15 ring-1 ring-sidebar-primary/30">
-          <Sparkles className="size-[18px] text-sidebar-primary" aria-hidden />
-        </div>
+      <div className="mb-4 flex items-center gap-2.5 border-b border-sidebar-border pb-4">
+        <Image
+          src="/gs-technology-logo.png"
+          alt="GS Technology"
+          width={120}
+          height={40}
+          className="h-8 w-auto max-w-[120px] shrink-0 object-contain"
+        />
         <div className="min-w-0">
           <p id="mobile-nav-title" className="truncate text-sm font-semibold tracking-tight">
-            POS Admin
+            GS Technology
           </p>
           <p className="truncate text-xs text-sidebar-foreground/60">Control panel</p>
         </div>
@@ -409,11 +452,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   if (!ready || authLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-muted-foreground">
-        Loading…
-      </div>
-    );
+    return <AppLoadingScreen />;
   }
 
   return (
@@ -421,18 +460,22 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <aside
         className={cn(
           asideShell,
-          "relative hidden w-64 shrink-0 border-r pt-5 pr-3 pb-6 pl-4 md:flex"
+          "sticky top-0 hidden h-dvh max-h-dvh w-64 shrink-0 overflow-hidden border-r pt-5 pr-2 pb-4 pl-4 md:flex"
         )}
       >
         <div className="pointer-events-none absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-sidebar-primary/[0.08] to-transparent" />
         <div className="relative flex min-h-0 flex-1 flex-col">
-          <div className="mb-5 flex shrink-0 items-center gap-2.5 px-1">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-sidebar-primary/15 ring-1 ring-sidebar-primary/35">
-              <LayoutDashboard className="size-[18px] text-sidebar-primary" aria-hidden />
-            </div>
+          <div className="mb-4 flex shrink-0 items-center gap-2.5 px-1">
+            <Image
+              src="/gs-technology-logo.png"
+              alt="GS Technology"
+              width={120}
+              height={40}
+              className="h-8 w-auto max-w-[120px] shrink-0 object-contain"
+            />
             <div className="min-w-0">
               <h1 className="truncate font-semibold tracking-tight text-sidebar-foreground">
-                POS Admin
+                GS Technology
               </h1>
               <p className="text-xs font-medium tracking-wide text-sidebar-foreground/60 uppercase">
                 Operations
@@ -440,16 +483,19 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <div className="-mr-2 min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-2">
+          <ScrollArea className="h-0 flex-1 pr-2">
             <NavLinks
               navItems={filteredNav}
               collapsedSections={collapsedSections}
               toggleSection={toggleSection}
             />
-          </div>
+          </ScrollArea>
 
-          <div className="mt-4 shrink-0 border-t border-sidebar-border pt-4 text-xs text-sidebar-foreground/60">
-            <span className="truncate block font-medium">{user?.username ?? "Signed in"}</span>
+          <div className="mt-3 shrink-0 border-t border-sidebar-border pt-3">
+            <SettingsFooterLink />
+            <span className="block truncate text-xs font-medium text-sidebar-foreground/60">
+              {user?.username ?? "Signed in"}
+            </span>
           </div>
         </div>
       </aside>
@@ -469,7 +515,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             <Menu className="size-4" />
           </Button>
           <span className="flex-1 truncate text-sm font-semibold tracking-tight md:hidden">
-            POS Admin
+            GS Technology
           </span>
 
           <div className="ml-auto flex items-center gap-2">
@@ -499,24 +545,37 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
               className={cn(
                 asideShell,
                 "animate-in fade-in slide-in-from-left duration-200",
-                "absolute inset-y-0 left-0 flex w-[min(300px,88vw)] flex-col p-5 shadow-xl"
+                "absolute inset-y-0 left-0 flex h-dvh max-h-dvh w-[min(300px,88vw)] flex-col overflow-hidden p-5 shadow-xl"
               )}
               role="dialog"
               aria-modal="true"
               aria-labelledby="mobile-nav-title"
             >
               {mobileHeader}
-              <NavLinks
-                navItems={filteredNav}
-                onNavigate={() => setMobileOpen(false)}
-                collapsedSections={collapsedSections}
-                toggleSection={toggleSection}
-              />
+              <ScrollArea className="h-0 flex-1">
+                <NavLinks
+                  navItems={filteredNav}
+                  onNavigate={() => setMobileOpen(false)}
+                  collapsedSections={collapsedSections}
+                  toggleSection={toggleSection}
+                />
+              </ScrollArea>
+              <div className="mt-3 shrink-0 border-t border-sidebar-border pt-3">
+                <SettingsFooterLink onNavigate={() => setMobileOpen(false)} />
+                <span className="block truncate text-xs font-medium text-sidebar-foreground/60">
+                  {user?.username ?? "Signed in"}
+                </span>
+              </div>
             </div>
           </div>
         ) : null}
 
-        <main className="flex-1 bg-background p-4 md:p-6">{children}</main>
+        <div className="flex min-h-0 flex-1 flex-col bg-background">
+          <main className="flex-1 overflow-y-auto p-4 md:p-6">{children}</main>
+          <footer className="sticky bottom-0 z-20 shrink-0 border-t border-border bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80 md:px-6">
+            {pageFooter ?? <DefaultDashboardFooter />}
+          </footer>
+        </div>
       </div>
     </div>
   );

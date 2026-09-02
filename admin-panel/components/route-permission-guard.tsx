@@ -4,6 +4,7 @@ import { useEffect, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ShieldOff } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AppLoadingScreen } from "@/components/app-loading-screen";
 import { useAuth } from "@/lib/auth-context";
 import {
   getFirstAccessibleRoute,
@@ -25,11 +26,7 @@ export function RoutePermissionGuard({ children }: { children: ReactNode }) {
   }, [loading, config, hasPermission, permissions, router]);
 
   if (loading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center text-muted-foreground">
-        Loading…
-      </div>
-    );
+    return <AppLoadingScreen fullScreen={false} message="Checking permissions…" />;
   }
 
   if (config && !hasPermission(config.view)) {

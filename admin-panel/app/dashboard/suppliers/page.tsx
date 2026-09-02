@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
   useForm,
+  Controller,
   type SubmitHandler,
   type SubmitErrorHandler,
 } from "react-hook-form";
@@ -40,12 +41,25 @@ import { apiJson } from "@/lib/api";
 import { useRouteAccess } from "@/lib/auth-context";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
 import { useConfirmDialog } from "@/components/confirm-dialog";
+import { PhoneInput } from "@/components/phone-input";
+import {
+  formatPhoneDisplay,
+  formatPhoneInput,
+  isValidPhoneNumber,
+  PHONE_PLACEHOLDER_LANDLINE,
+  PHONE_PLACEHOLDER_MOBILE,
+  PHONE_VALIDATION_MESSAGE,
+} from "@/lib/phone-format";
 
 type SupplierRow = {
   id: number;
   name: string;
   email: string | null;
   phone: string | null;
+  contact_number: string | null;
+  telephone_number: string | null;
+  whatsapp_number: string | null;
+  vat_number: string | null;
   address: string | null;
   notes: string | null;
   is_active: number | boolean;
@@ -65,6 +79,10 @@ type SupplierDetailResponse = {
   name: string;
   email: string | null;
   phone: string | null;
+  contact_number: string | null;
+  telephone_number: string | null;
+  whatsapp_number: string | null;
+  vat_number: string | null;
   address: string | null;
   notes: string | null;
   is_active: boolean;
@@ -81,10 +99,38 @@ function fieldErrorCls() {
 const textareaClass =
   "min-h-[80px] w-full rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:bg-input/30 dark:aria-invalid:border-destructive/50";
 
+const optionalPhoneField = z
+  .string()
+  .trim()
+  .max(64)
+  .optional()
+  .refine((v) => !v || isValidPhoneNumber(v), {
+    message: PHONE_VALIDATION_MESSAGE,
+  });
+
+const requiredContactNumberField = z
+  .string()
+  .trim()
+  .min(1, "Contact number is required")
+  .max(64)
+  .refine((v) => isValidPhoneNumber(v), {
+    message: PHONE_VALIDATION_MESSAGE,
+  });
+
 const supplierFormSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(255),
   email: z.union([z.string().trim().email("Invalid email"), z.literal("")]),
-  phone: z.string().trim().max(64).optional(),
+  contact_number: requiredContactNumberField,
+  telephone_number: optionalPhoneField,
+  whatsapp_number: optionalPhoneField,
+  vat_number: z.union([
+    z.literal(""),
+    z
+      .string()
+      .trim()
+      .min(10, "VAT number must be 10–30 characters")
+      .max(30, "VAT number must be 10–30 characters"),
+  ]),
   address: z.string().trim().max(512).optional(),
   notes: z.string().trim().max(16000).optional(),
   is_active: z.boolean(),
@@ -112,7 +158,10 @@ export default function SuppliersPage() {
     () => ({
       name: "",
       email: "",
-      phone: "",
+      contact_number: "",
+      telephone_number: "",
+      whatsapp_number: "",
+      vat_number: "",
       address: "",
       notes: "",
       is_active: true,
@@ -184,37 +233,56 @@ export default function SuppliersPage() {
     setDialogOpen(true);
   }
 
-  async function openEdit(row: SupplierRow) {
-    setEditingId(row.id);
-    reset({
+  function supplierFormFromRow(row: {
+    name: string;
+    email?: string | null;
+    phone?: string | null;
+    contact_number?: string | null;
+    telephone_number?: string | null;
+    whatsapp_number?: string | null;
+    vat_number?: string | null;
+    address?: string | null;
+    notes?: string | null;
+    is_active: number | boolean;
+  }): SupplierFormValues {
+    return {
       name: row.name,
       email: row.email ?? "",
-      phone: row.phone ?? "",
+      contact_number: formatPhoneInput(row.contact_number ?? row.phone ?? ""),
+      telephone_number: formatPhoneInput(row.telephone_number ?? ""),
+      whatsapp_number: formatPhoneInput(row.whatsapp_number ?? ""),
+      vat_number: row.vat_number ?? "",
       address: row.address ?? "",
       notes: row.notes ?? "",
       is_active: Boolean(row.is_active),
-    });
+    };
+  }
+
+  async function openEdit(row: SupplierRow) {
+    setEditingId(row.id);
+    reset(supplierFormFromRow(row));
     clearErrors();
     setDialogOpen(true);
     const res = await apiJson<SupplierDetailResponse>(`/suppliers/${row.id}`);
     if (res.ok && res.data) {
-      reset({
-        name: res.data.name,
-        email: res.data.email ?? "",
-        phone: res.data.phone ?? "",
-        address: res.data.address ?? "",
-        notes: res.data.notes ?? "",
-        is_active: Boolean(res.data.is_active),
-      });
+      reset(supplierFormFromRow(res.data));
     }
   }
 
   function toApiPayload(data: SupplierFormValues) {
     const emailTrim = data.email.trim();
+    const vatTrim = data.vat_number.trim();
     return {
       name: data.name.trim(),
       email: emailTrim === "" ? null : emailTrim,
-      phone: data.phone?.trim() ? data.phone.trim() : null,
+      contact_number: data.contact_number.trim(),
+      telephone_number: data.telephone_number?.trim()
+        ? data.telephone_number.trim()
+        : null,
+      whatsapp_number: data.whatsapp_number?.trim()
+        ? data.whatsapp_number.trim()
+        : null,
+      vat_number: vatTrim === "" ? null : vatTrim,
       address: data.address?.trim() ? data.address.trim() : null,
       notes: data.notes?.trim() ? data.notes.trim() : null,
       is_active: data.is_active,
@@ -327,7 +395,7 @@ export default function SuppliersPage() {
             <div className="flex gap-2">
               <Input
                 id="sup-filter"
-                placeholder="Search name, email, phone, or id…"
+                placeholder="Search name, email, phone, VAT, or id…"
                 value={filterInput}
                 onChange={(e) => setFilterInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && applyFilter()}
@@ -370,7 +438,8 @@ export default function SuppliersPage() {
                 <TableHead className="w-14">Id</TableHead>
                 <TableHead>Name</TableHead>
                 <TableHead className="min-w-[140px]">Email</TableHead>
-                <TableHead>Phone</TableHead>
+                <TableHead>Contact</TableHead>
+                <TableHead className="min-w-[120px]">VAT No.</TableHead>
                 <TableHead className="w-[72px]">Active</TableHead>
                 <TableHead className="w-[100px]">Updated</TableHead>
                 {canEdit ? (
@@ -381,14 +450,14 @@ export default function SuppliersPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center">
+                  <TableCell colSpan={8} className="h-24 text-center">
                     <Loader2Icon className="mx-auto size-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : list.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={8}
                     className="h-24 text-center text-muted-foreground"
                   >
                     No rows to display.
@@ -403,7 +472,10 @@ export default function SuppliersPage() {
                       {row.email ?? "—"}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
-                      {row.phone ?? "—"}
+                      {formatPhoneDisplay(row.contact_number ?? row.phone)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {row.vat_number ?? "—"}
                     </TableCell>
                     <TableCell>{Boolean(row.is_active) ? "Yes" : "No"}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">
@@ -482,7 +554,7 @@ export default function SuppliersPage() {
       >
         <DialogContent
           showCloseButton
-          className="flex max-h-[min(90vh,calc(100vh-2rem))] max-w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
+          className="flex max-h-[min(90vh,calc(100vh-2rem))] max-w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
         >
           <form
             className="flex max-h-[min(86vh,calc(100vh-4rem))] flex-col gap-4"
@@ -530,21 +602,101 @@ export default function SuppliersPage() {
                 ) : null}
               </div>
 
-              <div className="grid gap-2">
-                <Label htmlFor="sup-phone">Phone</Label>
-                <Input
-                  id="sup-phone"
-                  type="tel"
-                  aria-invalid={Boolean(formState.errors.phone)}
-                  className={cn(formState.errors.phone && "border-destructive")}
-                  autoComplete="tel"
-                  {...register("phone")}
-                />
-                {formState.errors.phone?.message ? (
-                  <p className={fieldErrorCls()} role="alert">
-                    {String(formState.errors.phone.message)}
-                  </p>
-                ) : null}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="sup-contact">
+                    Contact number<span className="text-destructive">*</span>
+                  </Label>
+                  <Controller
+                    name="contact_number"
+                    control={form.control}
+                    render={({ field }) => (
+                      <PhoneInput
+                        id="sup-contact"
+                        placeholder={PHONE_PLACEHOLDER_MOBILE}
+                        aria-invalid={Boolean(formState.errors.contact_number)}
+                        className={cn(
+                          formState.errors.contact_number && "border-destructive"
+                        )}
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    )}
+                  />
+                  {formState.errors.contact_number?.message ? (
+                    <p className={fieldErrorCls()} role="alert">
+                      {String(formState.errors.contact_number.message)}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="sup-telephone">Telephone number</Label>
+                  <Controller
+                    name="telephone_number"
+                    control={form.control}
+                    render={({ field }) => (
+                      <PhoneInput
+                        id="sup-telephone"
+                        placeholder={PHONE_PLACEHOLDER_LANDLINE}
+                        autoComplete="tel-national"
+                        aria-invalid={Boolean(formState.errors.telephone_number)}
+                        className={cn(
+                          formState.errors.telephone_number && "border-destructive"
+                        )}
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    )}
+                  />
+                  {formState.errors.telephone_number?.message ? (
+                    <p className={fieldErrorCls()} role="alert">
+                      {String(formState.errors.telephone_number.message)}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="sup-whatsapp">WhatsApp number</Label>
+                  <Controller
+                    name="whatsapp_number"
+                    control={form.control}
+                    render={({ field }) => (
+                      <PhoneInput
+                        id="sup-whatsapp"
+                        placeholder={PHONE_PLACEHOLDER_MOBILE}
+                        aria-invalid={Boolean(formState.errors.whatsapp_number)}
+                        className={cn(
+                          formState.errors.whatsapp_number && "border-destructive"
+                        )}
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    )}
+                  />
+                  {formState.errors.whatsapp_number?.message ? (
+                    <p className={fieldErrorCls()} role="alert">
+                      {String(formState.errors.whatsapp_number.message)}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="sup-vat">Supplier VAT number</Label>
+                  <Input
+                    id="sup-vat"
+                    aria-invalid={Boolean(formState.errors.vat_number)}
+                    className={cn(formState.errors.vat_number && "border-destructive")}
+                    placeholder="10–30 characters"
+                    maxLength={30}
+                    {...register("vat_number")}
+                  />
+                  {formState.errors.vat_number?.message ? (
+                    <p className={fieldErrorCls()} role="alert">
+                      {String(formState.errors.vat_number.message)}
+                    </p>
+                  ) : null}
+                </div>
               </div>
 
               <div className="grid gap-2">

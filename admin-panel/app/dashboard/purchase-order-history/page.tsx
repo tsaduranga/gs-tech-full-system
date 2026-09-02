@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2Icon, SearchIcon } from "lucide-react";
+import { Loader2Icon, SearchIcon, EyeIcon, FileTextIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,9 +17,18 @@ import {
 } from "@/components/ui/table";
 import { apiJson } from "@/lib/api";
 import { CatalogIdCombobox } from "@/components/catalog-id-combobox";
+import { PurchaseOrderDetailDialog } from "@/components/purchase-order-detail-dialog";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
 import { SearchableStrPicker } from "@/components/searchable-str-picker";
 import { cn } from "@/lib/utils";
+import {
+  DEFAULT_ITEM_TAX_RATES,
+  taxRatesFromApi,
+} from "@/lib/item-pricing";
+import {
+  downloadPurchaseOrderPdf,
+  type PurchaseOrderDetail,
+} from "@/lib/purchase-order-print";
 
 type PORow = {
   id: number;
@@ -79,6 +88,10 @@ export default function PurchaseOrderHistoryPage() {
   const [suppliersLoading, setSuppliersLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [viewPoId, setViewPoId] = useState<number | null>(null);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [pdfLoadingId, setPdfLoadingId] = useState<number | null>(null);
+  const [vatRate, setVatRate] = useState(DEFAULT_ITEM_TAX_RATES.vatRate);
 
   const totalPages = useMemo(
     () => Math.max(1, Math.ceil(total / pageSize)),
@@ -102,6 +115,9 @@ export default function PurchaseOrderHistoryPage() {
 
   useEffect(() => {
     void loadSuppliers();
+    void apiJson<{ vat_rate: number }>("/settings").then((res) => {
+      if (res.ok && res.data) setVatRate(taxRatesFromApi(res.data).vatRate);
+    });
   }, [loadSuppliers]);
 
   const loadList = useCallback(async () => {
@@ -137,6 +153,23 @@ export default function PurchaseOrderHistoryPage() {
   function applySearch() {
     setPage(1);
     setActiveQuery(filterInput.trim());
+  }
+
+  function openView(poId: number) {
+    setViewPoId(poId);
+    setViewOpen(true);
+  }
+
+  async function openPdf(poId: number) {
+    setPdfLoadingId(poId);
+    setError(null);
+    const res = await apiJson<PurchaseOrderDetail>(`/purchase-orders/${poId}`);
+    setPdfLoadingId(null);
+    if (!res.ok || !res.data) {
+      setError(res.error ?? "Failed to load purchase order for PDF");
+      return;
+    }
+    await downloadPurchaseOrderPdf(res.data, vatRate);
   }
 
   return (
@@ -238,19 +271,20 @@ export default function PurchaseOrderHistoryPage() {
                 <TableHead>Ordered</TableHead>
                 <TableHead>Updated</TableHead>
                 <TableHead className="min-w-[88px]">By</TableHead>
+                <TableHead className="w-[88px] text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center">
+                  <TableCell colSpan={8} className="h-24 text-center">
                     <Loader2Icon className="mx-auto size-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : list.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={8}
                     className="h-24 text-center text-muted-foreground"
                   >
                     No purchase orders match your filters.
@@ -292,6 +326,33 @@ export default function PurchaseOrderHistoryPage() {
                     <TableCell className="text-muted-foreground text-sm">
                       {row.created_by_username ?? "—"}
                     </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`View purchase order ${row.order_number}`}
+                          onClick={() => openView(row.id)}
+                        >
+                          <EyeIcon className="size-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Download PDF for ${row.order_number}`}
+                          disabled={pdfLoadingId === row.id}
+                          onClick={() => void openPdf(row.id)}
+                        >
+                          {pdfLoadingId === row.id ? (
+                            <Loader2Icon className="size-4 animate-spin" />
+                          ) : (
+                            <FileTextIcon className="size-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))
               )}
@@ -330,6 +391,15 @@ export default function PurchaseOrderHistoryPage() {
           </div>
         </div>
       </CardContent>
+
+      <PurchaseOrderDetailDialog
+        poId={viewPoId}
+        open={viewOpen}
+        onOpenChange={(open) => {
+          setViewOpen(open);
+          if (!open) setViewPoId(null);
+        }}
+      />
     </Card>
   );
 }

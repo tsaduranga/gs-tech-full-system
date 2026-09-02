@@ -62,6 +62,21 @@ purchaseOrdersRouter.get("/", requirePermission("purchase_orders.read"), async (
 });
 
 purchaseOrdersRouter.get(
+  "/:id",
+  requirePermission("purchase_orders.read"),
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      const po = await transactionsModel.purchaseOrders.getById(id);
+      if (!po) return next(new HttpError(404, "Purchase order not found"));
+      res.json(po);
+    } catch (e) {
+      next(e);
+    }
+  }
+);
+
+purchaseOrdersRouter.get(
   "/:id/lines",
   requirePermission("purchase_orders.read"),
   async (req, res, next) => {
@@ -85,6 +100,7 @@ purchaseOrdersRouter.post("/", requirePermission("purchase_orders.write"), async
             item_id: z.number(),
             qty_ordered: z.number().positive(),
             unit_cost: z.number().nonnegative(),
+            supplier_warranty_ids: z.array(z.number().int().min(1)).optional().default([]),
           })
         ),
       })
@@ -96,11 +112,15 @@ purchaseOrdersRouter.post("/", requirePermission("purchase_orders.write"), async
         itemId: l.item_id,
         qtyOrdered: l.qty_ordered,
         unitCost: l.unit_cost,
+        supplierWarrantyIds: l.supplier_warranty_ids ?? [],
       })),
       userId: req.authUser!.id,
     });
     res.status(201).json({ id });
   } catch (e) {
+    if (e instanceof Error && /Invalid supplier warranty/.test(e.message)) {
+      return next(new HttpError(400, e.message));
+    }
     next(e);
   }
 });
@@ -113,6 +133,8 @@ purchaseOrdersRouter.post(
       const id = Number(req.params.id);
       const body = z
         .object({
+          supplier_invoice_number: z.string().trim().min(1, "Supplier GRN invoice number is required").max(100),
+          warehouse_id: z.number().int().min(1),
           lines: z.array(
             z.object({
               purchase_order_line_id: z.number(),
@@ -123,6 +145,8 @@ purchaseOrdersRouter.post(
         .parse(req.body);
       const rid = await transactionsModel.purchaseOrders.receive({
         purchaseOrderId: id,
+        supplierInvoiceNumber: body.supplier_invoice_number.trim(),
+        warehouseId: body.warehouse_id,
         lines: body.lines.map((l) => ({
           purchaseOrderLineId: l.purchase_order_line_id,
           qty: l.qty,

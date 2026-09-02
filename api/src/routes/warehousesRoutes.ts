@@ -44,7 +44,7 @@ const codeSchema = z
   .max(50, "Code at most 50 characters")
   .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/, "Use letters, numbers, hyphens, or underscores");
 
-warehousesRouter.get("/", requirePermission("warehouses.read"), async (req, res, next) => {
+warehousesRouter.get("/", requirePermission("warehouses.read", "goods_receipts.read"), async (req, res, next) => {
   try {
     const qp = listQuerySchema.parse(req.query);
     const offset = (qp.page - 1) * qp.pageSize;

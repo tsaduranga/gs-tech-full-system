@@ -27,8 +27,20 @@ export const ACTION_LABELS: Record<MatrixAction, string> = {
   csv: "CSV download",
 };
 
+export type PermissionNavModule = {
+  key: string;
+  label: string;
+  /** Reuse another module's permission keys (same checkboxes, separate menu row). */
+  linkedModule?: string;
+};
+
+export type PermissionNavSection = {
+  heading: string;
+  modules: readonly PermissionNavModule[];
+};
+
 /** Matches sidebar navigation order in dashboard-shell. */
-export const PERMISSION_NAV_SECTIONS = [
+export const PERMISSION_NAV_SECTIONS: readonly PermissionNavSection[] = [
   {
     heading: "Dashboard",
     modules: [{ key: "dashboard", label: "Dashboard" }],
@@ -38,6 +50,7 @@ export const PERMISSION_NAV_SECTIONS = [
     modules: [
       { key: "users", label: "Users" },
       { key: "roles", label: "Roles" },
+      { key: "permissions", label: "Permissions", linkedModule: "roles" },
     ],
   },
   {
@@ -46,37 +59,87 @@ export const PERMISSION_NAV_SECTIONS = [
       { key: "customers", label: "Customers" },
       { key: "suppliers", label: "Suppliers" },
       { key: "warehouses", label: "Warehouses" },
+      { key: "categories", label: "Categories" },
+      { key: "subcategories", label: "Subcategories" },
+      { key: "customer_warranties", label: "Customer Warranties" },
+      { key: "supplier_warranties", label: "Supplier Warranties" },
       { key: "items", label: "Items" },
     ],
   },
   {
     heading: "Inventory",
-    modules: [{ key: "stock", label: "Stock" }],
+    modules: [
+      { key: "stock", label: "Stock" },
+      { key: "transfer_items", label: "Transfer items", linkedModule: "stock" },
+      { key: "transfer_history", label: "Transfer history", linkedModule: "stock" },
+    ],
   },
   {
     heading: "Purchasing",
     modules: [
       { key: "purchase_orders", label: "Purchase orders" },
+      {
+        key: "purchase_order_history",
+        label: "Purchase order history",
+        linkedModule: "purchase_orders",
+      },
       { key: "goods_receipts", label: "Goods receipt (GRN)" },
+      {
+        key: "goods_receipt_history",
+        label: "GRN history",
+        linkedModule: "goods_receipts",
+      },
       { key: "supplier_returns", label: "Supplier returns" },
+      {
+        key: "supplier_return_history",
+        label: "Supplier return history",
+        linkedModule: "supplier_returns",
+      },
     ],
   },
   {
     heading: "Sales",
     modules: [
       { key: "quotations", label: "Quotations" },
+      {
+        key: "quotation_history",
+        label: "Quotation history",
+        linkedModule: "quotations",
+      },
       { key: "sales_orders", label: "Sales orders" },
+      {
+        key: "sales_order_history",
+        label: "Sales order history",
+        linkedModule: "sales_orders",
+      },
       { key: "invoices", label: "Invoices" },
+      {
+        key: "invoice_history",
+        label: "Invoice history",
+        linkedModule: "invoices",
+      },
       { key: "customer_returns", label: "Customer returns" },
+      {
+        key: "customer_return_history",
+        label: "Customer return history",
+        linkedModule: "customer_returns",
+      },
     ],
   },
   {
     heading: "Service",
-    modules: [{ key: "repairs", label: "Repairs" }],
+    modules: [
+      { key: "repairs", label: "Repairs" },
+      { key: "repair_history", label: "Repair history", linkedModule: "repairs" },
+    ],
   },
   {
     heading: "Reports",
     modules: [{ key: "reports", label: "Reports" }],
+  },
+  {
+    heading: "System",
+    modules: [{ key: "settings", label: "Settings" }],
   },
 ] as const;
 
@@ -115,7 +178,8 @@ function matchesAction(action: string, matrixAction: MatrixAction): boolean {
 function buildModuleRow(
   moduleKey: string,
   moduleLabel: string,
-  perms: PermissionRecord[]
+  perms: PermissionRecord[],
+  opts?: { includeExtras?: boolean }
 ): ModulePermissionRow {
   const cells: Partial<Record<MatrixAction, PermissionRecord>> = {};
   const extras: PermissionRecord[] = [];
@@ -132,7 +196,7 @@ function buildModuleRow(
         break;
       }
     }
-    if (!placed) extras.push(perm);
+    if (!placed && opts?.includeExtras !== false) extras.push(perm);
   }
 
   return { moduleKey, moduleLabel, cells, extras };
@@ -165,9 +229,14 @@ export function buildGroupedPermissionMatrix(
     const rows: ModulePermissionRow[] = [];
 
     for (const mod of section.modules) {
-      const perms = byModule.get(mod.key);
+      const permModule = mod.linkedModule ?? mod.key;
+      const perms = byModule.get(permModule);
       if (!perms?.length) continue;
-      rows.push(buildModuleRow(mod.key, mod.label, perms));
+      rows.push(
+        buildModuleRow(mod.key, mod.label, perms, {
+          includeExtras: !mod.linkedModule,
+        })
+      );
     }
 
     if (rows.length > 0) {

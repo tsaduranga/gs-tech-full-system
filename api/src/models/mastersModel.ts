@@ -7,6 +7,11 @@ async function insertId(rows: unknown): Promise<number> {
   return (rows as ResultSetHeader).insertId as number;
 }
 
+async function itemWarrantySql(): Promise<{ join: string; select: string }> {
+  // Warranties are loaded via item_customer_warranties / item_supplier_warranties junction tables.
+  return { join: "", select: "" };
+}
+
 export const mastersModel = {
   customers: {
     async list(): Promise<RowDataPacket[]> {
@@ -26,10 +31,13 @@ export const mastersModel = {
       const params: unknown[] = [];
       if (q) {
         conditions.push(
-          "(c.name LIKE ? OR COALESCE(c.email, '') LIKE ? OR COALESCE(c.phone, '') LIKE ? OR CAST(c.id AS CHAR) LIKE ?)"
+          `(c.name LIKE ? OR COALESCE(c.email, '') LIKE ? OR COALESCE(c.phone, '') LIKE ?
+            OR COALESCE(c.contact_number, '') LIKE ? OR COALESCE(c.telephone_number, '') LIKE ?
+            OR COALESCE(c.whatsapp_number, '') LIKE ? OR COALESCE(c.vat_number, '') LIKE ?
+            OR CAST(c.id AS CHAR) LIKE ?)`
         );
         const like = `%${q}%`;
-        params.push(like, like, like, like);
+        params.push(like, like, like, like, like, like, like, like);
       }
       const whereClause = `WHERE ${conditions.join(" AND ")}`;
       const [countRows] = await pool.query<RowDataPacket[]>(
@@ -38,7 +46,9 @@ export const mastersModel = {
       );
       const total = Number((countRows[0] as { c?: number })?.c ?? 0);
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT c.id, c.name, c.email, c.phone, c.address, c.notes, c.is_active, c.created_at, c.updated_at
+        `SELECT c.id, c.name, c.email, c.phone, c.contact_number, c.telephone_number,
+                c.whatsapp_number, c.vat_number, c.address, c.notes, c.is_active,
+                c.created_at, c.updated_at
          FROM customers c ${whereClause} ORDER BY c.id ASC LIMIT ? OFFSET ?`,
         [...params, opts.limit, opts.offset]
       );
@@ -54,12 +64,19 @@ export const mastersModel = {
     },
     async create(p: Record<string, unknown>): Promise<number> {
       const [r] = await pool.query<ResultSetHeader>(
-        `INSERT INTO customers (name, email, phone, address, notes, is_active)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO customers (
+           name, email, phone, contact_number, telephone_number, whatsapp_number,
+           vat_number, address, notes, is_active
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           p.name,
           p.email ?? null,
           p.phone ?? null,
+          p.contact_number ?? null,
+          p.telephone_number ?? null,
+          p.whatsapp_number ?? null,
+          p.vat_number ?? null,
           p.address ?? null,
           p.notes ?? null,
           p.is_active ?? true,
@@ -73,6 +90,10 @@ export const mastersModel = {
         name: string;
         email: string | null;
         phone: string | null;
+        contact_number: string | null;
+        telephone_number: string | null;
+        whatsapp_number: string | null;
+        vat_number: string | null;
         address: string | null;
         notes: string | null;
         is_active: boolean;
@@ -91,6 +112,22 @@ export const mastersModel = {
       if (patch.phone !== undefined) {
         fields.push("phone = ?");
         params.push(patch.phone);
+      }
+      if (patch.contact_number !== undefined) {
+        fields.push("contact_number = ?");
+        params.push(patch.contact_number);
+      }
+      if (patch.telephone_number !== undefined) {
+        fields.push("telephone_number = ?");
+        params.push(patch.telephone_number);
+      }
+      if (patch.whatsapp_number !== undefined) {
+        fields.push("whatsapp_number = ?");
+        params.push(patch.whatsapp_number);
+      }
+      if (patch.vat_number !== undefined) {
+        fields.push("vat_number = ?");
+        params.push(patch.vat_number);
       }
       if (patch.address !== undefined) {
         fields.push("address = ?");
@@ -152,10 +189,13 @@ export const mastersModel = {
       const params: unknown[] = [];
       if (q) {
         conditions.push(
-          "(s.name LIKE ? OR COALESCE(s.email, '') LIKE ? OR COALESCE(s.phone, '') LIKE ? OR CAST(s.id AS CHAR) LIKE ?)"
+          `(s.name LIKE ? OR COALESCE(s.email, '') LIKE ? OR COALESCE(s.phone, '') LIKE ?
+            OR COALESCE(s.contact_number, '') LIKE ? OR COALESCE(s.telephone_number, '') LIKE ?
+            OR COALESCE(s.whatsapp_number, '') LIKE ? OR COALESCE(s.vat_number, '') LIKE ?
+            OR CAST(s.id AS CHAR) LIKE ?)`
         );
         const like = `%${q}%`;
-        params.push(like, like, like, like);
+        params.push(like, like, like, like, like, like, like, like);
       }
       const whereClause = `WHERE ${conditions.join(" AND ")}`;
       const [countRows] = await pool.query<RowDataPacket[]>(
@@ -164,7 +204,9 @@ export const mastersModel = {
       );
       const total = Number((countRows[0] as { c?: number })?.c ?? 0);
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT s.id, s.name, s.email, s.phone, s.address, s.notes, s.is_active, s.created_at, s.updated_at
+        `SELECT s.id, s.name, s.email, s.phone, s.contact_number, s.telephone_number,
+                s.whatsapp_number, s.vat_number, s.address, s.notes, s.is_active,
+                s.created_at, s.updated_at
          FROM suppliers s ${whereClause} ORDER BY s.id ASC LIMIT ? OFFSET ?`,
         [...params, opts.limit, opts.offset]
       );
@@ -179,14 +221,28 @@ export const mastersModel = {
       return rows[0] ?? null;
     },
 
+    async listActiveBrief(): Promise<RowDataPacket[]> {
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT id, name FROM suppliers WHERE is_active = 1 AND ${notDeletedClause()} ORDER BY name ASC, id ASC`
+      );
+      return rows;
+    },
+
     async create(p: Record<string, unknown>): Promise<number> {
       const [r] = await pool.query<ResultSetHeader>(
-        `INSERT INTO suppliers (name, email, phone, address, notes, is_active)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO suppliers (
+           name, email, phone, contact_number, telephone_number, whatsapp_number,
+           vat_number, address, notes, is_active
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           p.name,
           p.email ?? null,
           p.phone ?? null,
+          p.contact_number ?? null,
+          p.telephone_number ?? null,
+          p.whatsapp_number ?? null,
+          p.vat_number ?? null,
           p.address ?? null,
           p.notes ?? null,
           p.is_active ?? true,
@@ -200,6 +256,10 @@ export const mastersModel = {
         name: string;
         email: string | null;
         phone: string | null;
+        contact_number: string | null;
+        telephone_number: string | null;
+        whatsapp_number: string | null;
+        vat_number: string | null;
         address: string | null;
         notes: string | null;
         is_active: boolean;
@@ -218,6 +278,22 @@ export const mastersModel = {
       if (patch.phone !== undefined) {
         fields.push("phone = ?");
         params.push(patch.phone);
+      }
+      if (patch.contact_number !== undefined) {
+        fields.push("contact_number = ?");
+        params.push(patch.contact_number);
+      }
+      if (patch.telephone_number !== undefined) {
+        fields.push("telephone_number = ?");
+        params.push(patch.telephone_number);
+      }
+      if (patch.whatsapp_number !== undefined) {
+        fields.push("whatsapp_number = ?");
+        params.push(patch.whatsapp_number);
+      }
+      if (patch.vat_number !== undefined) {
+        fields.push("vat_number = ?");
+        params.push(patch.vat_number);
       }
       if (patch.address !== undefined) {
         fields.push("address = ?");
@@ -444,6 +520,8 @@ export const mastersModel = {
       );
       const total = Number((countRows[0] as { c?: number })?.c ?? 0);
 
+      const { join: warrantyJoin, select: warrantySelect } = await itemWarrantySql();
+
       let selectFields: string;
       if (catJoin && hasCategory) {
         selectFields = `i.id, i.sku, i.name,
@@ -451,22 +529,22 @@ export const mastersModel = {
           s.name AS subcategory_name,
           COALESCE(s.category_id, ccn.id) AS catalog_category_id,
           i.subcategory_id,
-          i.description, i.unit_cost, i.unit_price, i.reorder_level, i.is_active, i.created_at, i.updated_at`;
+          i.description, i.unit_cost, i.unit_price, i.minimum_price, i.reorder_level, i.is_active, i.created_at, i.updated_at${warrantySelect}`;
       } else if (catJoin && !hasCategory) {
         selectFields = `i.id, i.sku, i.name,
           cc.name AS category,
           s.name AS subcategory_name,
           s.category_id AS catalog_category_id,
           i.subcategory_id,
-          i.description, i.unit_cost, i.unit_price, i.reorder_level, i.is_active, i.created_at, i.updated_at`;
+          i.description, i.unit_cost, i.unit_price, i.minimum_price, i.reorder_level, i.is_active, i.created_at, i.updated_at${warrantySelect}`;
       } else if (hasCategory) {
-        selectFields = `i.id, i.sku, i.name, i.category, NULL AS subcategory_name, NULL AS catalog_category_id, NULL AS subcategory_id, i.description, i.unit_cost, i.unit_price, i.reorder_level, i.is_active, i.created_at, i.updated_at`;
+        selectFields = `i.id, i.sku, i.name, i.category, NULL AS subcategory_name, NULL AS catalog_category_id, NULL AS subcategory_id, i.description, i.unit_cost, i.unit_price, i.minimum_price, i.reorder_level, i.is_active, i.created_at, i.updated_at${warrantySelect}`;
       } else {
-        selectFields = `i.id, i.sku, i.name, NULL AS category, NULL AS subcategory_name, NULL AS catalog_category_id, NULL AS subcategory_id, i.description, i.unit_cost, i.unit_price, i.reorder_level, i.is_active, i.created_at, i.updated_at`;
+        selectFields = `i.id, i.sku, i.name, NULL AS category, NULL AS subcategory_name, NULL AS catalog_category_id, NULL AS subcategory_id, i.description, i.unit_cost, i.unit_price, i.minimum_price, i.reorder_level, i.is_active, i.created_at, i.updated_at${warrantySelect}`;
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT ${selectFields} FROM items i ${joinSql} ${whereClause} ORDER BY i.id ASC LIMIT ? OFFSET ?`,
+        `SELECT ${selectFields} FROM items i ${joinSql} ${warrantyJoin} ${whereClause} ORDER BY i.id ASC LIMIT ? OFFSET ?`,
         [...params, opts.limit, opts.offset]
       );
       return { rows, total };
@@ -498,28 +576,30 @@ export const mastersModel = {
         : "";
 
       const baseCols = hasSubFk
-        ? `i.id, i.sku, i.name, i.description, i.unit_cost, i.unit_price, i.reorder_level, i.is_active, i.created_at, i.updated_at, i.subcategory_id`
-        : `i.id, i.sku, i.name, i.description, i.unit_cost, i.unit_price, i.reorder_level, i.is_active, i.created_at, i.updated_at`;
+        ? `i.id, i.sku, i.name, i.description, i.unit_cost, i.unit_price, i.minimum_price, i.reorder_level, i.is_active, i.created_at, i.updated_at, i.subcategory_id`
+        : `i.id, i.sku, i.name, i.description, i.unit_cost, i.unit_price, i.minimum_price, i.reorder_level, i.is_active, i.created_at, i.updated_at`;
+      const { join: warrantyJoin, select: warrantyCols } = await itemWarrantySql();
+      const itemCols = `${baseCols}${warrantyCols}`;
 
       let selectFields: string;
       if (catJoin && hasCategory) {
-        selectFields = `${baseCols},
+        selectFields = `${itemCols},
           COALESCE(cc.name, i.category) AS category,
           s.name AS subcategory_name,
           COALESCE(s.category_id, ccn.id) AS catalog_category_id`;
       } else if (catJoin && !hasCategory) {
-        selectFields = `${baseCols},
+        selectFields = `${itemCols},
           cc.name AS category,
           s.name AS subcategory_name,
           s.category_id AS catalog_category_id`;
       } else if (hasCategory) {
-        selectFields = `${baseCols}, i.category, NULL AS subcategory_name, NULL AS catalog_category_id`;
+        selectFields = `${itemCols}, i.category, NULL AS subcategory_name, NULL AS catalog_category_id`;
       } else {
-        selectFields = `${baseCols}, NULL AS category, NULL AS subcategory_name, NULL AS catalog_category_id`;
+        selectFields = `${itemCols}, NULL AS category, NULL AS subcategory_name, NULL AS catalog_category_id`;
       }
 
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT ${selectFields} FROM items i ${joinSql} WHERE i.id = ? AND ${notDeletedClause("i")} LIMIT 1`,
+        `SELECT ${selectFields} FROM items i ${joinSql} ${warrantyJoin} WHERE i.id = ? AND ${notDeletedClause("i")} LIMIT 1`,
         [id]
       );
       return rows[0] ?? null;
@@ -532,12 +612,14 @@ export const mastersModel = {
       description?: unknown;
       unit_cost?: unknown;
       unit_price?: unknown;
+      minimum_price?: unknown;
       reorder_level?: unknown;
       is_active?: unknown;
       subcategory_id?: unknown;
     }): Promise<number> {
       const hasCategory = await tableHasColumn("items", "category");
       const hasSubFk = await tableHasColumn("items", "subcategory_id");
+      const hasMinimumPrice = await tableHasColumn("items", "minimum_price");
 
       const cols = ["sku", "name"];
       const vals: unknown[] = [p.sku, p.name];
@@ -545,14 +627,14 @@ export const mastersModel = {
         cols.push("category");
         vals.push(p.category ?? null);
       }
-      cols.push("description", "unit_cost", "unit_price", "reorder_level", "is_active");
-      vals.push(
-        p.description ?? null,
-        p.unit_cost ?? 0,
-        p.unit_price ?? 0,
-        p.reorder_level ?? 0,
-        p.is_active ?? true
-      );
+      cols.push("description", "unit_cost", "unit_price");
+      vals.push(p.description ?? null, p.unit_cost ?? 0, p.unit_price ?? 0);
+      if (hasMinimumPrice) {
+        cols.push("minimum_price");
+        vals.push(p.minimum_price ?? 0);
+      }
+      cols.push("reorder_level", "is_active");
+      vals.push(p.reorder_level ?? 0, p.is_active ?? true);
       if (hasSubFk) {
         cols.push("subcategory_id");
         vals.push(p.subcategory_id ?? null);
@@ -574,6 +656,7 @@ export const mastersModel = {
         description: string | null;
         unit_cost: number;
         unit_price: number;
+        minimum_price: number;
         reorder_level: number;
         is_active: boolean;
         subcategory_id: number | null;
@@ -581,6 +664,7 @@ export const mastersModel = {
     ): Promise<void> {
       const hasCategory = await tableHasColumn("items", "category");
       const hasSubFk = await tableHasColumn("items", "subcategory_id");
+      const hasMinimumPrice = await tableHasColumn("items", "minimum_price");
       const fields: string[] = [];
       const params: unknown[] = [];
       if (patch.sku !== undefined) {
@@ -607,6 +691,10 @@ export const mastersModel = {
         fields.push("unit_price = ?");
         params.push(patch.unit_price);
       }
+      if (patch.minimum_price !== undefined && hasMinimumPrice) {
+        fields.push("minimum_price = ?");
+        params.push(patch.minimum_price);
+      }
       if (patch.reorder_level !== undefined) {
         fields.push("reorder_level = ?");
         params.push(patch.reorder_level);
@@ -629,6 +717,146 @@ export const mastersModel = {
 
     async delete(id: number): Promise<boolean> {
       return softDelete("items", id);
+    },
+
+    async listSupplierIds(itemId: number): Promise<number[]> {
+      if (!(await tableExists("item_suppliers"))) return [];
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT isup.supplier_id
+         FROM item_suppliers isup
+         INNER JOIN suppliers s ON s.id = isup.supplier_id AND ${notDeletedClause("s")}
+         WHERE isup.item_id = ?
+         ORDER BY s.name ASC, isup.supplier_id ASC`,
+        [itemId]
+      );
+      return rows.map((r) => Number(r.supplier_id));
+    },
+
+    async setSuppliers(itemId: number, supplierIds: number[]): Promise<void> {
+      if (!(await tableExists("item_suppliers"))) return;
+      const unique = [...new Set(supplierIds.filter((id) => Number.isFinite(id) && id >= 1))];
+      await pool.query(`DELETE FROM item_suppliers WHERE item_id = ?`, [itemId]);
+      for (const sid of unique) {
+        await pool.query(
+          `INSERT IGNORE INTO item_suppliers (item_id, supplier_id) VALUES (?, ?)`,
+          [itemId, sid]
+        );
+      }
+    },
+
+    async listCustomerWarrantyIds(itemId: number): Promise<number[]> {
+      if (!(await tableExists("item_customer_warranties"))) return [];
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT icw.warranty_id
+         FROM item_customer_warranties icw
+         INNER JOIN warranties w ON w.id = icw.warranty_id AND ${notDeletedClause("w")}
+         WHERE icw.item_id = ?
+         ORDER BY w.name ASC, icw.warranty_id ASC`,
+        [itemId]
+      );
+      return rows.map((r) => Number(r.warranty_id));
+    },
+
+    async setCustomerWarranties(itemId: number, warrantyIds: number[]): Promise<void> {
+      if (!(await tableExists("item_customer_warranties"))) return;
+      const unique = [...new Set(warrantyIds.filter((id) => Number.isFinite(id) && id >= 1))];
+      await pool.query(`DELETE FROM item_customer_warranties WHERE item_id = ?`, [itemId]);
+      for (const wid of unique) {
+        await pool.query(
+          `INSERT IGNORE INTO item_customer_warranties (item_id, warranty_id) VALUES (?, ?)`,
+          [itemId, wid]
+        );
+      }
+    },
+
+    async listSupplierWarrantyIds(itemId: number): Promise<number[]> {
+      if (!(await tableExists("item_supplier_warranties"))) return [];
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT isw.warranty_id
+         FROM item_supplier_warranties isw
+         INNER JOIN warranties w ON w.id = isw.warranty_id AND ${notDeletedClause("w")}
+         WHERE isw.item_id = ?
+         ORDER BY w.name ASC, isw.warranty_id ASC`,
+        [itemId]
+      );
+      return rows.map((r) => Number(r.warranty_id));
+    },
+
+    async setSupplierWarranties(itemId: number, warrantyIds: number[]): Promise<void> {
+      if (!(await tableExists("item_supplier_warranties"))) return;
+      const unique = [...new Set(warrantyIds.filter((id) => Number.isFinite(id) && id >= 1))];
+      await pool.query(`DELETE FROM item_supplier_warranties WHERE item_id = ?`, [itemId]);
+      for (const wid of unique) {
+        await pool.query(
+          `INSERT IGNORE INTO item_supplier_warranties (item_id, warranty_id) VALUES (?, ?)`,
+          [itemId, wid]
+        );
+      }
+    },
+
+    async listWarrantyBriefsForItems(itemIds: number[]): Promise<{
+      customer: Map<number, { id: number; name: string; warranty_years: number; warranty_months: number }[]>;
+      supplier: Map<number, { id: number; name: string; warranty_years: number; warranty_months: number }[]>;
+    }> {
+      const customer = new Map<
+        number,
+        { id: number; name: string; warranty_years: number; warranty_months: number }[]
+      >();
+      const supplier = new Map<
+        number,
+        { id: number; name: string; warranty_years: number; warranty_months: number }[]
+      >();
+      if (!itemIds.length) return { customer, supplier };
+
+      const hasCustomer = await tableExists("item_customer_warranties");
+      const hasSupplier = await tableExists("item_supplier_warranties");
+      const placeholders = itemIds.map(() => "?").join(", ");
+
+      if (hasCustomer) {
+        const [rows] = await pool.query<RowDataPacket[]>(
+          `SELECT icw.item_id, w.id, w.name, w.warranty_years, w.warranty_months
+           FROM item_customer_warranties icw
+           INNER JOIN warranties w ON w.id = icw.warranty_id AND ${notDeletedClause("w")}
+           WHERE icw.item_id IN (${placeholders})
+           ORDER BY icw.item_id ASC, w.name ASC, w.id ASC`,
+          itemIds
+        );
+        for (const r of rows) {
+          const itemId = Number(r.item_id);
+          const list = customer.get(itemId) ?? [];
+          list.push({
+            id: Number(r.id),
+            name: String(r.name),
+            warranty_years: Number(r.warranty_years ?? 0),
+            warranty_months: Number(r.warranty_months ?? 0),
+          });
+          customer.set(itemId, list);
+        }
+      }
+
+      if (hasSupplier) {
+        const [rows] = await pool.query<RowDataPacket[]>(
+          `SELECT isw.item_id, w.id, w.name, w.warranty_years, w.warranty_months
+           FROM item_supplier_warranties isw
+           INNER JOIN warranties w ON w.id = isw.warranty_id AND ${notDeletedClause("w")}
+           WHERE isw.item_id IN (${placeholders})
+           ORDER BY isw.item_id ASC, w.name ASC, w.id ASC`,
+          itemIds
+        );
+        for (const r of rows) {
+          const itemId = Number(r.item_id);
+          const list = supplier.get(itemId) ?? [];
+          list.push({
+            id: Number(r.id),
+            name: String(r.name),
+            warranty_years: Number(r.warranty_years ?? 0),
+            warranty_months: Number(r.warranty_months ?? 0),
+          });
+          supplier.set(itemId, list);
+        }
+      }
+
+      return { customer, supplier };
     },
   },
 
@@ -746,6 +974,41 @@ export const mastersModel = {
         [...params, opts.limit, opts.offset]
       );
       return { rows: rows as RowDataPacket[], total };
+    },
+
+    async listByItemId(itemId: number): Promise<{
+      total: number;
+      warehouses: {
+        warehouse_id: number;
+        warehouse_code: string;
+        warehouse_name: string;
+        quantity: number;
+      }[];
+    }> {
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `
+        SELECT s.warehouse_id, s.quantity, w.code AS warehouse_code, w.name AS warehouse_name
+        FROM stock s
+        JOIN items i ON i.id = s.item_id AND ${notDeletedClause("i")}
+        JOIN warehouses w ON w.id = s.warehouse_id AND ${notDeletedClause("w")}
+        WHERE s.item_id = ?
+        ORDER BY w.code ASC`,
+        [itemId]
+      );
+
+      let total = 0;
+      const warehouses = rows.map((r) => {
+        const quantity = Number(r.quantity ?? 0);
+        total += quantity;
+        return {
+          warehouse_id: Number(r.warehouse_id),
+          warehouse_code: String(r.warehouse_code ?? ""),
+          warehouse_name: String(r.warehouse_name ?? r.warehouse_code ?? ""),
+          quantity,
+        };
+      });
+
+      return { total, warehouses };
     },
 
     async byWarehouse(

@@ -72,7 +72,48 @@ const optionalDescription = z
 
 const optionalNullableId = z.union([z.number().int().min(1), z.null()]).optional();
 
-function serializeItem(row: Record<string, unknown>) {
+const optionalWarrantyIds = z.array(z.number().int().min(1)).optional();
+
+const optionalSupplierIds = z.array(z.number().int().min(1)).optional();
+
+type WarrantyBrief = {
+  id: number;
+  name: string;
+  warranty_years: number;
+  warranty_months: number;
+};
+
+function formatWarrantyPeriod(years: number, months: number): string {
+  const parts: string[] = [];
+  if (years > 0) parts.push(`${years} year${years === 1 ? "" : "s"}`);
+  if (months > 0) parts.push(`${months} month${months === 1 ? "" : "s"}`);
+  return parts.length ? parts.join(" ") : "—";
+}
+
+function formatWarrantyList(warranties: WarrantyBrief[]): string {
+  if (!warranties.length) return "";
+  return warranties
+    .map((w) => `${w.name} (${formatWarrantyPeriod(w.warranty_years, w.warranty_months)})`)
+    .join(", ");
+}
+
+function assertMinimumPriceNotBelowUnitPrice(
+  unitPrice: number,
+  minimumPrice: number
+): void {
+  if (minimumPrice < unitPrice) {
+    throw new HttpError(400, "Minimum price cannot be less than unit price");
+  }
+}
+
+function serializeItem(
+  row: Record<string, unknown>,
+  extras?: {
+    supplierIds?: number[];
+    customerWarranties?: WarrantyBrief[];
+    supplierWarranties?: WarrantyBrief[];
+  }
+) {
   const catShown =
     row.category != null && String(row.category).trim() !== ""
       ? String(row.category)
@@ -99,8 +140,16 @@ function serializeItem(row: Record<string, unknown>) {
     description: row.description != null ? String(row.description) : null,
     unit_cost: Number(row.unit_cost),
     unit_price: Number(row.unit_price),
+    minimum_price: Number(row.minimum_price ?? 0),
     reorder_level: Number(row.reorder_level),
     is_active: Boolean(row.is_active),
+    customer_warranty_ids: (extras?.customerWarranties ?? []).map((w) => w.id),
+    customer_warranties: extras?.customerWarranties ?? [],
+    customer_warranty_label: formatWarrantyList(extras?.customerWarranties ?? []),
+    supplier_warranty_ids: (extras?.supplierWarranties ?? []).map((w) => w.id),
+    supplier_warranties: extras?.supplierWarranties ?? [],
+    supplier_warranty_label: formatWarrantyList(extras?.supplierWarranties ?? []),
+    supplier_ids: extras?.supplierIds ?? [],
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -118,8 +167,16 @@ itemsRouter.get("/", requirePermission("items.read"), async (req, res, next) => 
       limit: qp.pageSize,
       offset,
     });
+    const itemIds = rows.map((r) => Number((r as { id?: number }).id));
+    const warrantyMaps = await mastersModel.items.listWarrantyBriefsForItems(itemIds);
     res.json({
-      items: rows.map((r) => serializeItem(r as Record<string, unknown>)),
+      items: rows.map((r) => {
+        const id = Number((r as { id?: number }).id);
+        return serializeItem(r as Record<string, unknown>, {
+          customerWarranties: warrantyMaps.customer.get(id) ?? [],
+          supplierWarranties: warrantyMaps.supplier.get(id) ?? [],
+        });
+      }),
       total,
       page: qp.page,
       pageSize: qp.pageSize,
@@ -157,7 +214,7 @@ itemsRouter.post("/", requirePermission("items.write"), async (req, res, next) =
 
     const body = z
       .object({
-        sku: z.string().trim().min(1, "SKU is required").max(100),
+        sku: z.string().trim().min(1, "Serial number is required").max(100),
         name: z.string().trim().min(1, "Name is required").max(255),
         category: optionalCategory,
         catalog_category_id: optionalNullableId,
@@ -171,11 +228,29 @@ itemsRouter.post("/", requirePermission("items.write"), async (req, res, next) =
           .number()
           .finite()
           .positive("Unit price must be greater than zero"),
+        minimum_price: z.coerce
+          .number()
+          .finite()
+          .min(0, "Minimum price cannot be negative")
+          .optional()
+          .default(0),
         reorder_level: z.coerce
           .number()
           .int()
           .min(0, "Reorder level cannot be negative"),
         is_active: z.boolean().optional(),
+        customer_warranty_ids: optionalWarrantyIds,
+        supplier_warranty_ids: optionalWarrantyIds,
+        supplier_ids: optionalSupplierIds,
+      })
+      .superRefine((data, ctx) => {
+        if (data.minimum_price < data.unit_price) {
+          ctx.addIssue({
+            code: "custom",
+            message: "Minimum price cannot be less than unit price",
+            path: ["minimum_price"],
+          });
+        }
       })
       .parse(req.body);
 
@@ -213,13 +288,25 @@ itemsRouter.post("/", requirePermission("items.write"), async (req, res, next) =
         description: body.description ?? null,
         unit_cost: body.unit_cost,
         unit_price: body.unit_price,
+        minimum_price: body.minimum_price,
         reorder_level: body.reorder_level,
         is_active: body.is_active ?? true,
         subcategory_id: usedTaxonomy ? fkSubcategory ?? null : undefined,
       });
+      await mastersModel.items.setCustomerWarranties(
+        id,
+        body.customer_warranty_ids ?? []
+      );
+      await mastersModel.items.setSupplierWarranties(
+        id,
+        body.supplier_warranty_ids ?? []
+      );
+      if (body.supplier_ids !== undefined) {
+        await mastersModel.items.setSuppliers(id, body.supplier_ids);
+      }
       res.status(201).json({ id });
     } catch (e) {
-      if (isDuplicateKey(e)) throw new HttpError(409, "An item with this SKU already exists");
+      if (isDuplicateKey(e)) throw new HttpError(409, "An item with this serial number already exists");
       throw e;
     }
   } catch (e) {
@@ -233,7 +320,15 @@ itemsRouter.get("/:id", requirePermission("items.read"), async (req, res, next) 
     if (Number.isNaN(id) || id < 1) throw new HttpError(400, "Invalid item id");
     const row = await mastersModel.items.get(id);
     if (!row) throw new HttpError(404, "Item not found");
-    res.json(serializeItem(row as Record<string, unknown>));
+    const supplierIds = await mastersModel.items.listSupplierIds(id);
+    const warrantyMaps = await mastersModel.items.listWarrantyBriefsForItems([id]);
+    res.json(
+      serializeItem(row as Record<string, unknown>, {
+        supplierIds,
+        customerWarranties: warrantyMaps.customer.get(id) ?? [],
+        supplierWarranties: warrantyMaps.supplier.get(id) ?? [],
+      })
+    );
   } catch (e) {
     next(e);
   }
@@ -270,14 +365,32 @@ itemsRouter.patch("/:id", requirePermission("items.write"), async (req, res, nex
           .finite()
           .positive("Unit price must be greater than zero")
           .optional(),
+        minimum_price: z.coerce
+          .number()
+          .finite()
+          .min(0, "Minimum price cannot be negative")
+          .optional(),
         reorder_level: z.coerce
           .number()
           .int()
           .min(0, "Reorder level cannot be negative")
           .optional(),
         is_active: z.boolean().optional(),
+        customer_warranty_ids: optionalWarrantyIds,
+        supplier_warranty_ids: optionalWarrantyIds,
+        supplier_ids: optionalSupplierIds,
       })
       .parse(req.body);
+
+    const mergedUnitPrice =
+      body.unit_price !== undefined ? body.unit_price : Number(exists.unit_price);
+    const mergedMinimumPrice =
+      body.minimum_price !== undefined
+        ? body.minimum_price
+        : Number(exists.minimum_price ?? 0);
+    if (body.unit_price !== undefined || body.minimum_price !== undefined) {
+      assertMinimumPriceNotBelowUnitPrice(mergedUnitPrice, mergedMinimumPrice);
+    }
 
     try {
       if (usedTaxonomy) {
@@ -309,6 +422,7 @@ itemsRouter.patch("/:id", requirePermission("items.write"), async (req, res, nex
         ...(body.description !== undefined ? { description: body.description } : {}),
         ...(body.unit_cost !== undefined ? { unit_cost: body.unit_cost } : {}),
         ...(body.unit_price !== undefined ? { unit_price: body.unit_price } : {}),
+        ...(body.minimum_price !== undefined ? { minimum_price: body.minimum_price } : {}),
         ...(body.reorder_level !== undefined ? { reorder_level: body.reorder_level } : {}),
         ...(body.is_active !== undefined ? { is_active: body.is_active } : {}),
       };
@@ -325,9 +439,18 @@ itemsRouter.patch("/:id", requirePermission("items.write"), async (req, res, nex
       }
 
       await mastersModel.items.update(id, patchUpdate);
+      if (body.customer_warranty_ids !== undefined) {
+        await mastersModel.items.setCustomerWarranties(id, body.customer_warranty_ids);
+      }
+      if (body.supplier_warranty_ids !== undefined) {
+        await mastersModel.items.setSupplierWarranties(id, body.supplier_warranty_ids);
+      }
+      if (body.supplier_ids !== undefined) {
+        await mastersModel.items.setSuppliers(id, body.supplier_ids);
+      }
       res.json({ ok: true });
     } catch (e) {
-      if (isDuplicateKey(e)) throw new HttpError(409, "An item with this SKU already exists");
+      if (isDuplicateKey(e)) throw new HttpError(409, "An item with this serial number already exists");
       throw e;
     }
   } catch (e) {

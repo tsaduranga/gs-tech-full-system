@@ -1,7 +1,82 @@
-import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
+import type { PoolConnection, RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { pool } from "../db/pool.js";
 import { notDeletedClause } from "../db/softDelete.js";
 import { adjustStockConn } from "./stockAdjust.js";
+
+type PoLineWarrantyBrief = {
+  id: number;
+  name: string;
+  warranty_years: number;
+  warranty_months: number;
+};
+
+async function setPoLineSupplierWarrantiesConn(
+  conn: PoolConnection,
+  lineId: number,
+  warrantyIds: number[]
+): Promise<void> {
+  const unique = [...new Set(warrantyIds.filter((id) => Number.isFinite(id) && id >= 1))];
+  await conn.query(
+    `DELETE FROM purchase_order_line_supplier_warranties WHERE purchase_order_line_id = ?`,
+    [lineId]
+  );
+  for (const wid of unique) {
+    const [[w]] = await conn.query<RowDataPacket[]>(
+      `SELECT id FROM warranties
+       WHERE id = ? AND warranty_type = 'supplier' AND is_active = 1 AND ${notDeletedClause()}
+       LIMIT 1`,
+      [wid]
+    );
+    if (!w) throw new Error(`Invalid supplier warranty id ${wid}`);
+    await conn.query(
+      `INSERT INTO purchase_order_line_supplier_warranties (purchase_order_line_id, warranty_id)
+       VALUES (?, ?)`,
+      [lineId, wid]
+    );
+  }
+}
+
+async function listPoLineSupplierWarranties(
+  lineIds: number[]
+): Promise<Map<number, PoLineWarrantyBrief[]>> {
+  const map = new Map<number, PoLineWarrantyBrief[]>();
+  if (lineIds.length === 0) return map;
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT polsw.purchase_order_line_id, w.id, w.name, w.warranty_years, w.warranty_months
+     FROM purchase_order_line_supplier_warranties polsw
+     INNER JOIN warranties w ON w.id = polsw.warranty_id AND ${notDeletedClause("w")}
+     WHERE polsw.purchase_order_line_id IN (?)
+     ORDER BY w.name ASC, w.id ASC`,
+    [lineIds]
+  );
+  for (const r of rows) {
+    const lineId = Number(r.purchase_order_line_id);
+    const list = map.get(lineId) ?? [];
+    list.push({
+      id: Number(r.id),
+      name: String(r.name),
+      warranty_years: Number(r.warranty_years ?? 0),
+      warranty_months: Number(r.warranty_months ?? 0),
+    });
+    map.set(lineId, list);
+  }
+  return map;
+}
+
+function attachPoLineWarranties(
+  lines: RowDataPacket[],
+  warrantyMap: Map<number, PoLineWarrantyBrief[]>
+): RowDataPacket[] {
+  return lines.map((line) => {
+    const id = Number(line.id);
+    const supplierWarranties = warrantyMap.get(id) ?? [];
+    return {
+      ...line,
+      supplier_warranty_ids: supplierWarranties.map((w) => w.id),
+      supplier_warranties: supplierWarranties,
+    };
+  });
+}
 function nextOrderNumber(prefix: string): string {
   return `${prefix}-${Date.now()}`;
 }
@@ -70,17 +145,48 @@ LEFT JOIN users u ON u.id = po.created_by`;
       return { rows: rows as RowDataPacket[], total };
     },
     async lines(poId: number): Promise<RowDataPacket[]> {
-      const [rows] = await pool.query(
-        `SELECT pol.*, i.sku FROM purchase_order_lines pol
-         JOIN items i ON i.id = pol.item_id WHERE pol.purchase_order_id = ?`,
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT pol.id, pol.purchase_order_id, pol.item_id, pol.qty_ordered, pol.qty_received,
+                pol.unit_cost, i.sku, i.name AS item_name
+         FROM purchase_order_lines pol
+         JOIN items i ON i.id = pol.item_id
+         WHERE pol.purchase_order_id = ?
+         ORDER BY pol.id ASC`,
         [poId]
       );
-      return rows as RowDataPacket[];
+      const lineIds = rows.map((r) => Number(r.id));
+      const warrantyMap = await listPoLineSupplierWarranties(lineIds);
+      return attachPoLineWarranties(rows, warrantyMap);
+    },
+
+    async getById(id: number): Promise<RowDataPacket | null> {
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT po.id, po.supplier_id, s.name AS supplier_name,
+            s.address AS supplier_address, s.vat_number AS supplier_vat_number,
+            COALESCE(s.telephone_number, s.contact_number, s.phone) AS supplier_telephone,
+            po.order_number, po.status, po.ordered_at, po.notes,
+            po.created_by, po.created_at, po.updated_at,
+            u.username AS created_by_username
+         FROM purchase_orders po
+         JOIN suppliers s ON s.id = po.supplier_id
+         LEFT JOIN users u ON u.id = po.created_by
+         WHERE po.id = ?
+         LIMIT 1`,
+        [id]
+      );
+      if (!rows[0]) return null;
+      const lines = await this.lines(id);
+      return { ...rows[0], lines };
     },
     async create(input: {
       supplierId: number;
       orderedAt: string;
-      lines: { itemId: number; qtyOrdered: number; unitCost: number }[];
+      lines: {
+        itemId: number;
+        qtyOrdered: number;
+        unitCost: number;
+        supplierWarrantyIds?: number[];
+      }[];
       userId: number | null;
     }): Promise<number> {
       const conn = await pool.getConnection();
@@ -93,11 +199,15 @@ LEFT JOIN users u ON u.id = po.created_by`;
         );
         const poId = r.insertId as number;
         for (const ln of input.lines) {
-          await conn.query(
+          const [lineRes] = await conn.query<ResultSetHeader>(
             `INSERT INTO purchase_order_lines (purchase_order_id, item_id, qty_ordered, unit_cost)
              VALUES (?, ?, ?, ?)`,
             [poId, ln.itemId, ln.qtyOrdered, ln.unitCost]
           );
+          const lineId = lineRes.insertId as number;
+          if (ln.supplierWarrantyIds?.length) {
+            await setPoLineSupplierWarrantiesConn(conn, lineId, ln.supplierWarrantyIds);
+          }
         }
         await conn.commit();
         return poId;
@@ -111,15 +221,30 @@ LEFT JOIN users u ON u.id = po.created_by`;
 
     async receive(input: {
       purchaseOrderId: number;
+      supplierInvoiceNumber: string;
+      warehouseId: number;
       lines: { purchaseOrderLineId: number; qty: number }[];
       userId: number | null;
     }): Promise<number> {
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
+
+        const [[wh]] = await conn.query<RowDataPacket[]>(
+          `SELECT id FROM warehouses WHERE id = ? AND is_active = 1 AND ${notDeletedClause()} LIMIT 1`,
+          [input.warehouseId]
+        );
+        if (!wh) throw new Error("Invalid or inactive warehouse");
+
         const [rRec] = await conn.query<ResultSetHeader>(
-          `INSERT INTO purchase_receipts (purchase_order_id, created_by) VALUES (?, ?)`,
-          [input.purchaseOrderId, input.userId]
+          `INSERT INTO purchase_receipts (purchase_order_id, supplier_invoice_number, warehouse_id, created_by)
+           VALUES (?, ?, ?, ?)`,
+          [
+            input.purchaseOrderId,
+            input.supplierInvoiceNumber,
+            input.warehouseId,
+            input.userId,
+          ]
         );
         const receiptId = rRec.insertId as number;
 
@@ -146,14 +271,9 @@ LEFT JOIN users u ON u.id = po.created_by`;
             `UPDATE purchase_order_lines SET qty_received = qty_received + ? WHERE id = ?`,
             [l.qty, l.purchaseOrderLineId]
           );
-          /** default warehouse 1 assumption — use first active warehouse id */
-          const [[wh]] = await conn.query<RowDataPacket[]>(
-            `SELECT id FROM warehouses WHERE is_active = 1 AND ${notDeletedClause()} ORDER BY id LIMIT 1`
-          );
-          if (!wh) throw new Error("No active warehouse");
 
           await adjustStockConn(conn, {
-            warehouseId: wh.id as number,
+            warehouseId: input.warehouseId,
             itemId: pol.item_id as number,
             delta: Number(l.qty),
             movementType: "PURCHASE_RECEIVE",

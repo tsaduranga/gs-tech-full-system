@@ -14,6 +14,7 @@ import { warehousesRouter } from "./routes/warehousesRoutes.js";
 import { itemsRouter } from "./routes/itemsRoutes.js";
 import { categoriesRouter } from "./routes/categoriesRoutes.js";
 import { subcategoriesRouter } from "./routes/subcategoriesRoutes.js";
+import { warrantiesRouter } from "./routes/warrantiesRoutes.js";
 import { stockRouter } from "./routes/stockRoutes.js";
 import { purchaseOrdersRouter } from "./routes/purchaseOrdersRoutes.js";
 import { quotationsRouter } from "./routes/quotationsRoutes.js";
@@ -25,6 +26,7 @@ import { supplierReturnsRouter } from "./routes/supplierReturnsRoutes.js";
 import { customerReturnsRouter } from "./routes/customerReturnsRoutes.js";
 import { dashboardRouter } from "./routes/dashboardRoutes.js";
 import { reportsRouter } from "./routes/reportsRoutes.js";
+import { settingsRouter } from "./routes/settingsRoutes.js";
 
 export function createApp() {
   const app = express();
@@ -56,6 +58,7 @@ export function createApp() {
   app.use("/items", itemsRouter);
   app.use("/categories", categoriesRouter);
   app.use("/subcategories", subcategoriesRouter);
+  app.use("/warranties", warrantiesRouter);
   app.use("/stock", stockRouter);
   app.use("/purchase-orders", purchaseOrdersRouter);
   app.use("/quotations", quotationsRouter);
@@ -67,6 +70,7 @@ export function createApp() {
   app.use("/customer-returns", customerReturnsRouter);
   app.use("/dashboard", dashboardRouter);
   app.use("/reports", reportsRouter);
+  app.use("/settings", settingsRouter);
 
   app.use(errorHandler);
   return app;

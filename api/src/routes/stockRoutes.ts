@@ -117,6 +117,19 @@ stockRouter.get("/transfer-history", requirePermission("stock.read"), async (req
   }
 });
 
+stockRouter.get(
+  "/by-item/:item_id",
+  requirePermission("stock.read", "purchase_orders.read"),
+  async (req, res, next) => {
+    try {
+      const itemId = z.coerce.number().int().min(1).parse(req.params.item_id);
+      res.json(await mastersModel.stock.listByItemId(itemId));
+    } catch (e) {
+      next(e);
+    }
+  }
+);
+
 stockRouter.get("/low-stock", requirePermission("stock.read"), async (req, res, next) => {
   try {
     const t = Number(req.query.threshold ?? "5");

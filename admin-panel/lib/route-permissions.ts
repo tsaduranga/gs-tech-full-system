@@ -15,8 +15,20 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermissionConfig> = {
   "/dashboard/customers": { view: "customers.read", edit: "customers.write" },
   "/dashboard/suppliers": { view: "suppliers.read", edit: "suppliers.write" },
   "/dashboard/warehouses": { view: "warehouses.read", edit: "warehouses.write" },
-  "/dashboard/categories": { view: "items.read", edit: "items.write" },
-  "/dashboard/subcategories": { view: "items.read", edit: "items.write" },
+  "/dashboard/categories": { view: "categories.read", edit: "categories.write" },
+  "/dashboard/subcategories": { view: "subcategories.read", edit: "subcategories.write" },
+  "/dashboard/customer-warranties": {
+    view: "customer_warranties.read",
+    edit: "customer_warranties.write",
+  },
+  "/dashboard/supplier-warranties": {
+    view: "supplier_warranties.read",
+    edit: "supplier_warranties.write",
+  },
+  "/dashboard/warranties": {
+    view: "customer_warranties.read",
+    edit: "customer_warranties.write",
+  },
   "/dashboard/items": { view: "items.read", edit: "items.write" },
   "/dashboard/stock": { view: "stock.read" },
   "/dashboard/transfer-items": { view: "stock.read", edit: "stock.transfer" },
@@ -47,6 +59,7 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermissionConfig> = {
   "/dashboard/repairs": { view: "repairs.read", edit: "repairs.write" },
   "/dashboard/repair-history": { view: "repairs.read" },
   "/dashboard/reports": { view: "reports.read" },
+  "/dashboard/settings": { view: "settings.read", edit: "settings.write" },
 };
 
 export function getRoutePermission(pathname: string): RoutePermissionConfig | null {

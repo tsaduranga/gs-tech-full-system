@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "POS Admin",
-  description: "Computer accessory shop administration",
+  title: "GS Technology",
+  description: "GS Technology administration portal",
 };
 
 export default function RootLayout({

@@ -4,6 +4,7 @@ import { HttpError } from "../utils/httpError.js";
 import { requireAuth } from "../middleware/auth.js";
 import { requirePermission } from "../middleware/requirePermission.js";
 import { mastersModel } from "../models/mastersModel.js";
+import { optionalPhoneField, requiredPhoneField } from "../validation/phone.js";
 
 export const customersRouter = Router();
 customersRouter.use(requireAuth);
@@ -37,6 +38,50 @@ const optionalTrimmedString = z
     v === undefined ? undefined : v === null ? null : v.trim() === "" ? null : v.trim()
   );
 
+const optionalVatNumber = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((v) => {
+    if (v === undefined) return undefined;
+    if (v === null) return null;
+    const trimmed = v.trim();
+    return trimmed === "" ? null : trimmed;
+  })
+  .refine(
+    (v) => v === undefined || v === null || (v.length >= 10 && v.length <= 30),
+    { message: "VAT number must be 10–30 characters" }
+  );
+
+const customerBodyFields = {
+  name: z.string().trim().min(1, "Name is required").max(255),
+  email: z.union([z.string().email(), z.literal("")]).optional(),
+  phone: optionalPhoneField,
+  contact_number: requiredPhoneField,
+  telephone_number: optionalPhoneField,
+  whatsapp_number: optionalPhoneField,
+  vat_number: optionalVatNumber,
+  address: optionalTrimmedString,
+  notes: optionalTrimmedString,
+  is_active: z.boolean().optional(),
+};
+
+function customerCreatePayload(
+  body: z.infer<z.ZodObject<typeof customerBodyFields>>
+) {
+  return {
+    name: body.name,
+    email: body.email === undefined ? null : body.email === "" ? null : body.email,
+    phone: body.phone ?? null,
+    contact_number: body.contact_number ?? null,
+    telephone_number: body.telephone_number ?? null,
+    whatsapp_number: body.whatsapp_number ?? null,
+    vat_number: body.vat_number ?? null,
+    address: body.address ?? null,
+    notes: body.notes ?? null,
+    is_active: body.is_active ?? true,
+  };
+}
+
 const optionalEmail = z
   .union([z.string().email(), z.literal(""), z.null()])
   .optional()
@@ -64,24 +109,8 @@ customersRouter.get("/", requirePermission("customers.read"), async (req, res, n
 
 customersRouter.post("/", requirePermission("customers.write"), async (req, res, next) => {
   try {
-    const body = z
-      .object({
-        name: z.string().trim().min(1, "Name is required").max(255),
-        email: z.union([z.string().email(), z.literal("")]).optional(),
-        phone: optionalTrimmedString,
-        address: optionalTrimmedString,
-        notes: optionalTrimmedString,
-        is_active: z.boolean().optional(),
-      })
-      .parse(req.body);
-    const id = await mastersModel.customers.create({
-      name: body.name,
-      email: body.email === undefined ? null : body.email === "" ? null : body.email,
-      phone: body.phone ?? null,
-      address: body.address ?? null,
-      notes: body.notes ?? null,
-      is_active: body.is_active ?? true,
-    });
+    const body = z.object(customerBodyFields).parse(req.body);
+    const id = await mastersModel.customers.create(customerCreatePayload(body));
     res.status(201).json({ id });
   } catch (e) {
     next(e);
@@ -99,6 +128,13 @@ customersRouter.get("/:id", requirePermission("customers.read"), async (req, res
       name: row.name as string,
       email: row.email != null ? String(row.email) : null,
       phone: row.phone != null ? String(row.phone) : null,
+      contact_number:
+        row.contact_number != null ? String(row.contact_number) : null,
+      telephone_number:
+        row.telephone_number != null ? String(row.telephone_number) : null,
+      whatsapp_number:
+        row.whatsapp_number != null ? String(row.whatsapp_number) : null,
+      vat_number: row.vat_number != null ? String(row.vat_number) : null,
       address: row.address != null ? String(row.address) : null,
       notes: row.notes != null ? String(row.notes) : null,
       is_active: Boolean(row.is_active),
@@ -119,9 +155,13 @@ customersRouter.patch("/:id", requirePermission("customers.write"), async (req, 
 
     const body = z
       .object({
-        name: z.string().trim().min(1).max(255).optional(),
+        name: customerBodyFields.name.optional(),
         email: optionalEmail,
-        phone: optionalTrimmedString,
+        phone: optionalPhoneField,
+        contact_number: requiredPhoneField,
+        telephone_number: optionalPhoneField,
+        whatsapp_number: optionalPhoneField,
+        vat_number: optionalVatNumber,
         address: optionalTrimmedString,
         notes: optionalTrimmedString,
         is_active: z.boolean().optional(),
@@ -132,6 +172,16 @@ customersRouter.patch("/:id", requirePermission("customers.write"), async (req, 
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.email !== undefined ? { email: body.email } : {}),
       ...(body.phone !== undefined ? { phone: body.phone } : {}),
+      ...(body.contact_number !== undefined
+        ? { contact_number: body.contact_number }
+        : {}),
+      ...(body.telephone_number !== undefined
+        ? { telephone_number: body.telephone_number }
+        : {}),
+      ...(body.whatsapp_number !== undefined
+        ? { whatsapp_number: body.whatsapp_number }
+        : {}),
+      ...(body.vat_number !== undefined ? { vat_number: body.vat_number } : {}),
       ...(body.address !== undefined ? { address: body.address } : {}),
       ...(body.notes !== undefined ? { notes: body.notes } : {}),
       ...(body.is_active !== undefined ? { is_active: body.is_active } : {}),

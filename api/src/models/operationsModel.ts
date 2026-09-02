@@ -1,5 +1,6 @@
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import { pool } from "../db/pool.js";
+import { notDeletedClause } from "../db/softDelete.js";
 import { adjustStockConn } from "./stockAdjust.js";
 
 function nextDoc(prefix: string): string {
@@ -158,6 +159,7 @@ LEFT JOIN users u ON u.id = so.created_by`;
 FROM purchase_receipts pr
 JOIN purchase_orders po ON po.id = pr.purchase_order_id
 JOIN suppliers s ON s.id = po.supplier_id
+LEFT JOIN warehouses w ON w.id = pr.warehouse_id
 LEFT JOIN users u ON u.id = pr.created_by`;
       const conditions: string[] = [];
       const params: unknown[] = [];
@@ -166,9 +168,10 @@ LEFT JOIN users u ON u.id = pr.created_by`;
         conditions.push(`(
           po.order_number LIKE ? OR s.name LIKE ?
           OR CAST(pr.id AS CHAR) LIKE ? OR CAST(pr.purchase_order_id AS CHAR) LIKE ?
+          OR COALESCE(pr.supplier_invoice_number, '') LIKE ?
         )`);
         const like = `%${q}%`;
-        params.push(like, like, like, like);
+        params.push(like, like, like, like, like);
       }
       if (opts.supplier_id != null && opts.supplier_id > 0) {
         conditions.push("po.supplier_id = ?");
@@ -184,6 +187,7 @@ LEFT JOIN users u ON u.id = pr.created_by`;
 
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT pr.id, pr.purchase_order_id, po.order_number, po.supplier_id, s.name AS supplier_name,
+            pr.supplier_invoice_number, pr.warehouse_id, w.code AS warehouse_code, w.name AS warehouse_name,
             pr.received_at, pr.created_by, u.username AS created_by_username
          ${baseSql}
          ${whereSql}
@@ -194,16 +198,73 @@ LEFT JOIN users u ON u.id = pr.created_by`;
       return { rows: rows as RowDataPacket[], total };
     },
 
+    async getById(id: number): Promise<RowDataPacket | null> {
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT pr.id, pr.purchase_order_id, po.order_number, po.supplier_id, po.ordered_at,
+            s.name AS supplier_name, s.address AS supplier_address, s.vat_number AS supplier_vat_number,
+            COALESCE(s.telephone_number, s.contact_number, s.phone) AS supplier_telephone,
+            pr.supplier_invoice_number, pr.warehouse_id, w.code AS warehouse_code, w.name AS warehouse_name,
+            pr.received_at, pr.created_by, u.username AS created_by_username
+         FROM purchase_receipts pr
+         JOIN purchase_orders po ON po.id = pr.purchase_order_id
+         JOIN suppliers s ON s.id = po.supplier_id
+         LEFT JOIN warehouses w ON w.id = pr.warehouse_id
+         LEFT JOIN users u ON u.id = pr.created_by
+         WHERE pr.id = ?
+         LIMIT 1`,
+        [id]
+      );
+      if (!rows[0]) return null;
+      const lines = await this.lines(id);
+      return { ...rows[0], lines };
+    },
+
     async lines(receiptId: number): Promise<RowDataPacket[]> {
-      const [rows] = await pool.query(
+      const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT prl.id, prl.qty, prl.purchase_order_line_id, pol.item_id, pol.unit_cost, i.sku, i.name AS item_name
          FROM purchase_receipt_lines prl
          JOIN purchase_order_lines pol ON pol.id = prl.purchase_order_line_id
          JOIN items i ON i.id = pol.item_id
-         WHERE prl.purchase_receipt_id = ?`,
+         WHERE prl.purchase_receipt_id = ?
+         ORDER BY prl.id ASC`,
         [receiptId]
       );
-      return rows as RowDataPacket[];
+      if (rows.length === 0) return rows;
+
+      const poLineIds = rows.map((r) => Number(r.purchase_order_line_id));
+      const [wRows] = await pool.query<RowDataPacket[]>(
+        `SELECT polsw.purchase_order_line_id, w.id, w.name, w.warranty_years, w.warranty_months
+         FROM purchase_order_line_supplier_warranties polsw
+         INNER JOIN warranties w ON w.id = polsw.warranty_id AND ${notDeletedClause("w")}
+         WHERE polsw.purchase_order_line_id IN (?)
+         ORDER BY w.name ASC, w.id ASC`,
+        [poLineIds]
+      );
+      const warrantyMap = new Map<
+        number,
+        { id: number; name: string; warranty_years: number; warranty_months: number }[]
+      >();
+      for (const r of wRows) {
+        const lineId = Number(r.purchase_order_line_id);
+        const list = warrantyMap.get(lineId) ?? [];
+        list.push({
+          id: Number(r.id),
+          name: String(r.name),
+          warranty_years: Number(r.warranty_years ?? 0),
+          warranty_months: Number(r.warranty_months ?? 0),
+        });
+        warrantyMap.set(lineId, list);
+      }
+
+      return rows.map((row) => {
+        const poLineId = Number(row.purchase_order_line_id);
+        const supplierWarranties = warrantyMap.get(poLineId) ?? [];
+        return {
+          ...row,
+          supplier_warranty_ids: supplierWarranties.map((w) => w.id),
+          supplier_warranties: supplierWarranties,
+        };
+      });
     },
   },
 
