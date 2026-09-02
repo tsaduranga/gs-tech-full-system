@@ -29,7 +29,11 @@ const FEATURES = [
   { icon: Warehouse, label: "Multi-Warehouse" },
 ] as const;
 
-const LOGIN_IMAGES = [
+const LOGIN_IMAGES: {
+  src: string;
+  alt: string;
+  offset?: boolean;
+}[] = [
   {
     src: "/login/inventory.jpg",
     alt: "Warehouse shelves stocked with inventory",
@@ -43,7 +47,7 @@ const LOGIN_IMAGES = [
     src: "/login/warehouse.jpg",
     alt: "Distribution warehouse operations",
   },
-] as const;
+];
 
 export default function LoginPage() {
   const router = useRouter();

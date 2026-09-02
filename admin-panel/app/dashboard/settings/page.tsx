@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useForm, type SubmitHandler } from "react-hook-form";
+import { useForm, type Resolver, type SubmitHandler } from "react-hook-form";
 import { Loader2Icon, SaveIcon, SettingsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,7 +50,7 @@ export default function SettingsPage() {
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   const form = useForm<SettingsFormValues>({
-    resolver: zodResolver(settingsFormSchema),
+    resolver: zodResolver(settingsFormSchema) as Resolver<SettingsFormValues>,
     defaultValues: { sscl_percent: 1.25, vat_percent: 18 },
     mode: "onTouched",
   });
