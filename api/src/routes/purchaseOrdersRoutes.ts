@@ -94,6 +94,7 @@ purchaseOrdersRouter.post("/", requirePermission("purchase_orders.write"), async
     const body = z
       .object({
         supplier_id: z.number(),
+        credit_period_id: z.number().int().min(1, "Credit period is required"),
         ordered_at: z.string(),
         lines: z.array(
           z.object({
@@ -107,6 +108,7 @@ purchaseOrdersRouter.post("/", requirePermission("purchase_orders.write"), async
       .parse(req.body);
     const id = await transactionsModel.purchaseOrders.create({
       supplierId: body.supplier_id,
+      creditPeriodId: body.credit_period_id,
       orderedAt: body.ordered_at,
       lines: body.lines.map((l) => ({
         itemId: l.item_id,
@@ -118,7 +120,10 @@ purchaseOrdersRouter.post("/", requirePermission("purchase_orders.write"), async
     });
     res.status(201).json({ id });
   } catch (e) {
-    if (e instanceof Error && /Invalid supplier warranty/.test(e.message)) {
+    if (
+      e instanceof Error &&
+      /Invalid supplier warranty|Invalid or inactive credit period/.test(e.message)
+    ) {
       return next(new HttpError(400, e.message));
     }
     next(e);

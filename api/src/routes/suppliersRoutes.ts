@@ -45,6 +45,20 @@ const optionalVatNumber = z
     { message: "VAT number must be 10–30 characters" }
   );
 
+const optionalTinNumber = z
+  .union([z.string(), z.null()])
+  .optional()
+  .transform((v) => {
+    if (v === undefined) return undefined;
+    if (v === null) return null;
+    const trimmed = v.trim();
+    return trimmed === "" ? null : trimmed;
+  })
+  .refine(
+    (v) => v === undefined || v === null || (v.length >= 5 && v.length <= 30),
+    { message: "TIN number must be 5–30 characters" }
+  );
+
 const optionalEmail = z
   .union([z.string().email(), z.literal(""), z.null()])
   .optional()
@@ -58,6 +72,7 @@ const supplierBodyFields = {
   telephone_number: optionalPhoneField,
   whatsapp_number: optionalPhoneField,
   vat_number: optionalVatNumber,
+  tin_number: optionalTinNumber,
   address: optionalTrimmedString,
   notes: optionalTrimmedString,
   is_active: z.boolean().optional(),
@@ -74,6 +89,7 @@ function supplierCreatePayload(
     telephone_number: body.telephone_number ?? null,
     whatsapp_number: body.whatsapp_number ?? null,
     vat_number: body.vat_number ?? null,
+    tin_number: body.tin_number ?? null,
     address: body.address ?? null,
     notes: body.notes ?? null,
     is_active: body.is_active ?? true,
@@ -93,6 +109,7 @@ function supplierDetailJson(row: Record<string, unknown>) {
     whatsapp_number:
       row.whatsapp_number != null ? String(row.whatsapp_number) : null,
     vat_number: row.vat_number != null ? String(row.vat_number) : null,
+    tin_number: row.tin_number != null ? String(row.tin_number) : null,
     address: row.address != null ? String(row.address) : null,
     notes: row.notes != null ? String(row.notes) : null,
     is_active: Boolean(row.is_active),
@@ -168,6 +185,7 @@ suppliersRouter.patch("/:id", requirePermission("suppliers.write"), async (req, 
         telephone_number: optionalPhoneField,
         whatsapp_number: optionalPhoneField,
         vat_number: optionalVatNumber,
+        tin_number: optionalTinNumber,
         address: optionalTrimmedString,
         notes: optionalTrimmedString,
         is_active: z.boolean().optional(),
@@ -188,6 +206,7 @@ suppliersRouter.patch("/:id", requirePermission("suppliers.write"), async (req, 
         ? { whatsapp_number: body.whatsapp_number }
         : {}),
       ...(body.vat_number !== undefined ? { vat_number: body.vat_number } : {}),
+      ...(body.tin_number !== undefined ? { tin_number: body.tin_number } : {}),
       ...(body.address !== undefined ? { address: body.address } : {}),
       ...(body.notes !== undefined ? { notes: body.notes } : {}),
       ...(body.is_active !== undefined ? { is_active: body.is_active } : {}),

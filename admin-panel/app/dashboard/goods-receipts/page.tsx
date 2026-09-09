@@ -452,7 +452,14 @@ export default function GoodsReceiptsPage() {
                   </DetailBox>
                   <DetailBox title="Supplier">
                     <DetailRow label="Name" value={poDetail.supplier_name} />
-                    <DetailRow label="TIN" value={poDetail.supplier_vat_number ?? "—"} />
+                    <DetailRow
+                      label="TIN"
+                      value={
+                        poDetail.supplier_tin_number?.trim() ||
+                        poDetail.supplier_vat_number ||
+                        "—"
+                      }
+                    />
                     <DetailRow label="Address" value={poDetail.supplier_address ?? "—"} />
                     <DetailRow
                       label="Telephone"

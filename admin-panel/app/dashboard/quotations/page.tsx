@@ -20,11 +20,18 @@ import { CatalogIdCombobox } from "@/components/catalog-id-combobox";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
 
 type CustomerBrief = { id: number; name: string };
-type ItemBrief = { id: number; sku: string; name: string };
+type ItemBrief = {
+  id: number;
+  sku: string;
+  name: string;
+  description?: string | null;
+  unit_price?: number | string;
+};
 
 type LineDraft = {
   key: string;
   itemId: number;
+  description: string;
   qty: string;
   unitPrice: string;
 };
@@ -34,7 +41,20 @@ function newLine(): LineDraft {
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
       : `q-${Math.random().toString(36).slice(2)}`;
-  return { key, itemId: 0, qty: "", unitPrice: "" };
+  return { key, itemId: 0, description: "", qty: "", unitPrice: "" };
+}
+
+function defaultDescriptionForItem(item: ItemBrief | undefined): string {
+  if (!item) return "";
+  const desc = String(item.description ?? "").trim();
+  if (desc) return desc;
+  return String(item.name ?? "").trim();
+}
+
+function defaultUnitPriceForItem(item: ItemBrief | undefined): string {
+  if (!item) return "";
+  const n = Number(item.unit_price);
+  return Number.isFinite(n) && n >= 0 ? String(n) : "";
 }
 
 function parseQtyOrMoney(t: string): number {
@@ -75,6 +95,12 @@ export default function QuotationsPage() {
   const [formMsg, setFormMsg] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const { canEdit } = useRouteAccess();
+
+  const itemsById = useMemo(() => {
+    const m = new Map<number, ItemBrief>();
+    for (const i of items) m.set(i.id, i);
+    return m;
+  }, [items]);
 
   const itemPickerOptions = useMemo(
     () =>
@@ -121,7 +147,12 @@ export default function QuotationsPage() {
       setFormMsg("Pick a customer.");
       return;
     }
-    const parsed: { item_id: number; qty: number; unit_price: number }[] = [];
+    const parsed: {
+      item_id: number;
+      description: string | null;
+      qty: number;
+      unit_price: number;
+    }[] = [];
     for (const row of lines) {
       if (row.itemId < 1) continue;
       const q = parseQtyOrMoney(row.qty);
@@ -136,7 +167,13 @@ export default function QuotationsPage() {
         setFormMsg("Each line needs a unit price zero or greater.");
         return;
       }
-      parsed.push({ item_id: row.itemId, qty: q, unit_price: p });
+      const desc = row.description.trim();
+      parsed.push({
+        item_id: row.itemId,
+        description: desc === "" ? null : desc,
+        qty: q,
+        unit_price: p,
+      });
     }
     if (parsed.length < 1) {
       setFormMsg("Add at least one line with an item.");
@@ -247,7 +284,7 @@ export default function QuotationsPage() {
 
           <div className="space-y-4">
             <div className="flex flex-wrap items-end justify-between gap-2">
-              <Label className="text-base font-medium">Lines</Label>
+              <Label className="text-base font-medium">Items</Label>
               <Button
                 type="button"
                 variant="outline"
@@ -255,36 +292,56 @@ export default function QuotationsPage() {
                 onClick={() => setLines((L) => [...L, newLine()])}
               >
                 <PlusIcon className="mr-1 size-4" />
-                Add line
+                Add item
               </Button>
             </div>
-            <div className="-mx-1 overflow-x-auto rounded-md border border-border">
-              <table className="w-full min-w-[640px] text-sm">
-                <thead className="border-b bg-muted/40 text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium">Item</th>
-                    <th className="px-3 py-2 text-left font-medium">
-                      Quantity
-                    </th>
-                    <th className="px-3 py-2 text-left font-medium">
-                      Unit price
-                    </th>
-                    <th className="w-px px-3 py-2" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {lines.map((row, idx) => (
-                    <tr key={row.key} className="border-b border-border/60">
-                      <td className="px-3 py-2 align-middle">
+            <div className="space-y-3">
+              {lines.map((row, idx) => {
+                const q = parseQtyOrMoney(row.qty);
+                const p = parseQtyOrMoney(row.unitPrice);
+                const lineTotal =
+                  row.itemId > 0 &&
+                  Number.isFinite(q) &&
+                  Number.isFinite(p) &&
+                  q > 0 &&
+                  p >= 0
+                    ? q * p
+                    : null;
+
+                return (
+                  <div
+                    key={row.key}
+                    className="space-y-3 rounded-md border border-border p-3 sm:p-4"
+                  >
+                    <div className="flex items-start gap-2">
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <Label htmlFor={`qt-line-it-${idx}`}>Item</Label>
                         <SearchableNumPicker
                           id={`qt-line-it-${idx}`}
                           options={itemPickerOptions}
                           valueId={row.itemId}
                           onValueChange={(id) => {
                             setLines((prev) =>
-                              prev.map((l) =>
-                                l.key === row.key ? { ...l, itemId: id } : l
-                              )
+                              prev.map((l) => {
+                                if (l.key !== row.key) return l;
+                                if (id < 1) {
+                                  return {
+                                    ...l,
+                                    itemId: 0,
+                                    description: "",
+                                    qty: "",
+                                    unitPrice: "",
+                                  };
+                                }
+                                const picked = itemsById.get(id);
+                                return {
+                                  ...l,
+                                  itemId: id,
+                                  description: defaultDescriptionForItem(picked),
+                                  qty: l.qty.trim() === "" ? "1" : l.qty,
+                                  unitPrice: defaultUnitPriceForItem(picked),
+                                };
+                              })
                             );
                           }}
                           placeholder="Pick item…"
@@ -293,11 +350,55 @@ export default function QuotationsPage() {
                           emptyFilterHint="No matching items"
                           variant="underline"
                         />
-                      </td>
-                      <td className="px-3 py-2 align-middle">
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="mt-7 shrink-0 text-muted-foreground hover:text-destructive"
+                        disabled={lines.length <= 1}
+                        aria-label="Remove item"
+                        onClick={() =>
+                          setLines((prev) =>
+                            prev.length <= 1
+                              ? prev
+                              : prev.filter((l) => l.key !== row.key)
+                          )
+                        }
+                      >
+                        <Trash2Icon className="size-4" />
+                      </Button>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor={`qt-line-desc-${idx}`}>Description</Label>
+                      <textarea
+                        id={`qt-line-desc-${idx}`}
+                        value={row.description}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setLines((prev) =>
+                            prev.map((l) =>
+                              l.key === row.key ? { ...l, description: v } : l
+                            )
+                          );
+                        }}
+                        className={cn(underlineTextareaClass, "min-h-[56px]")}
+                        placeholder="Selected item description…"
+                        rows={2}
+                        maxLength={500}
+                      />
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label htmlFor={`qt-line-qty-${idx}`}>Quantity</Label>
                         <Input
-                          aria-label="Quantity"
+                          id={`qt-line-qty-${idx}`}
+                          type="number"
                           inputMode="decimal"
+                          min={0}
+                          step="any"
                           value={row.qty}
                           onChange={(e) => {
                             const v = e.target.value;
@@ -310,11 +411,15 @@ export default function QuotationsPage() {
                           placeholder="e.g. 2"
                           className={underlineInputClass}
                         />
-                      </td>
-                      <td className="px-3 py-2 align-middle">
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor={`qt-line-price-${idx}`}>Unit price</Label>
                         <Input
-                          aria-label="Unit price"
+                          id={`qt-line-price-${idx}`}
+                          type="number"
                           inputMode="decimal"
+                          min={0}
+                          step="any"
                           value={row.unitPrice}
                           onChange={(e) => {
                             const v = e.target.value;
@@ -327,30 +432,17 @@ export default function QuotationsPage() {
                           placeholder="e.g. 25"
                           className={underlineInputClass}
                         />
-                      </td>
-                      <td className="px-1 py-2 align-middle">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          className="text-muted-foreground hover:text-destructive"
-                          disabled={lines.length <= 1}
-                          aria-label="Remove line"
-                          onClick={() =>
-                            setLines((prev) =>
-                              prev.length <= 1
-                                ? prev
-                                : prev.filter((l) => l.key !== row.key)
-                            )
-                          }
-                        >
-                          <Trash2Icon className="size-4" />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Item total</Label>
+                        <p className="flex h-10 items-center px-1 text-sm tabular-nums text-foreground">
+                          {lineTotal == null ? "—" : moneyDisplay(lineTotal)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <p className="text-sm text-muted-foreground">
               Draft subtotal preview:{" "}

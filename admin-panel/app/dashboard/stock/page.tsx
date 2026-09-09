@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { apiJson } from "@/lib/api";
+import { fmtRs } from "@/lib/document-totals";
 import { SearchableNumPicker } from "@/components/searchable-num-picker";
 import { CatalogIdCombobox } from "@/components/catalog-id-combobox";
 
@@ -24,8 +25,10 @@ type StockRow = {
   quantity: number | string;
   sku: string;
   name: string;
+  unit_price?: number | string;
   reorder_level: number | string;
   warehouse_code: string;
+  warehouse_name?: string | null;
   item_category: string | null;
 };
 
@@ -54,6 +57,15 @@ function qtyDisplay(v: unknown) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 4,
   }).format(n);
+}
+
+function num(v: unknown) {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function totalValue(row: StockRow) {
+  return num(row.quantity) * num(row.unit_price);
 }
 
 export default function StockPage() {
@@ -209,7 +221,7 @@ export default function StockPage() {
       <CardHeader>
         <CardTitle>Stock by warehouse</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Search by SKU, name, warehouse code, or id. Filter by warehouse,
+          Search by serial number, name, warehouse code, or id. Filter by warehouse,
           category, and subcategory when catalog data is configured.
         </p>
       </CardHeader>
@@ -220,7 +232,7 @@ export default function StockPage() {
             <div className="flex gap-2">
               <Input
                 id="stk-q"
-                placeholder="SKU, item name, warehouse code, ids…"
+                placeholder="Serial number, item name, warehouse code, ids…"
                 value={filterInput}
                 onChange={(e) => setFilterInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && applyFilters()}
@@ -316,27 +328,26 @@ export default function StockPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[88px]">Warehouse id</TableHead>
-                <TableHead className="min-w-[72px]">Code</TableHead>
-                <TableHead className="w-[72px]">Item id</TableHead>
-                <TableHead className="font-mono">SKU</TableHead>
+                <TableHead className="min-w-[140px]">Warehouse</TableHead>
+                <TableHead className="font-mono">Serial number</TableHead>
                 <TableHead>Name</TableHead>
-                <TableHead className="min-w-[96px]">Category</TableHead>
                 <TableHead className="text-right">Qty</TableHead>
+                <TableHead className="text-right">Unit price</TableHead>
+                <TableHead className="text-right">Total value</TableHead>
                 <TableHead className="text-right">Reorder</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-24 text-center">
+                  <TableCell colSpan={7} className="h-24 text-center">
                     <Loader2Icon className="mx-auto size-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : list.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={7}
                     className="h-24 text-center text-muted-foreground"
                   >
                     No stock rows match.
@@ -345,24 +356,23 @@ export default function StockPage() {
               ) : (
                 list.map((row) => (
                   <TableRow key={`${row.warehouse_id}-${row.item_id}`}>
-                    <TableCell className="tabular-nums">
-                      {row.warehouse_id}
+                    <TableCell>
+                      {row.warehouse_name?.trim() || row.warehouse_code || "—"}
                     </TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {row.warehouse_code}
-                    </TableCell>
-                    <TableCell className="tabular-nums">{row.item_id}</TableCell>
                     <TableCell className="font-mono text-xs font-medium">
                       {row.sku}
                     </TableCell>
                     <TableCell className="max-w-[220px] truncate">
                       {row.name}
                     </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {row.item_category ?? "—"}
-                    </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {qtyDisplay(row.quantity)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {fmtRs(num(row.unit_price))}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums font-medium">
+                      {fmtRs(totalValue(row))}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {qtyDisplay(row.reorder_level)}

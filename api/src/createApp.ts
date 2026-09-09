@@ -11,6 +11,7 @@ import { permissionsRouter } from "./routes/permissionsRoutes.js";
 import { customersRouter } from "./routes/customersRoutes.js";
 import { suppliersRouter } from "./routes/suppliersRoutes.js";
 import { warehousesRouter } from "./routes/warehousesRoutes.js";
+import { creditPeriodsRouter } from "./routes/creditPeriodsRoutes.js";
 import { itemsRouter } from "./routes/itemsRoutes.js";
 import { categoriesRouter } from "./routes/categoriesRoutes.js";
 import { subcategoriesRouter } from "./routes/subcategoriesRoutes.js";
@@ -55,6 +56,7 @@ export function createApp() {
   app.use("/customers", customersRouter);
   app.use("/suppliers", suppliersRouter);
   app.use("/warehouses", warehousesRouter);
+  app.use("/credit-periods", creditPeriodsRouter);
   app.use("/items", itemsRouter);
   app.use("/categories", categoriesRouter);
   app.use("/subcategories", subcategoriesRouter);

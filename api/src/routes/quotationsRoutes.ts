@@ -82,6 +82,7 @@ quotationsRouter.post("/", requirePermission("quotations.write"), async (req, re
         lines: z.array(
           z.object({
             item_id: z.number(),
+            description: z.string().trim().max(500).nullable().optional(),
             qty: z.number().positive(),
             unit_price: z.number().nonnegative(),
           })
@@ -94,6 +95,7 @@ quotationsRouter.post("/", requirePermission("quotations.write"), async (req, re
       notes: body.notes ?? null,
       lines: body.lines.map((l) => ({
         itemId: l.item_id,
+        description: l.description ?? null,
         qty: l.qty,
         unitPrice: l.unit_price,
       })),

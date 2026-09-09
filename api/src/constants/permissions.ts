@@ -18,6 +18,8 @@ export const PERMISSIONS = [
   "customer_warranties.write",
   "supplier_warranties.read",
   "supplier_warranties.write",
+  "credit_periods.read",
+  "credit_periods.write",
   "items.read",
   "items.write",
   "stock.read",

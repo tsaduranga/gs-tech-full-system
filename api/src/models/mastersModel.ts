@@ -192,10 +192,10 @@ export const mastersModel = {
           `(s.name LIKE ? OR COALESCE(s.email, '') LIKE ? OR COALESCE(s.phone, '') LIKE ?
             OR COALESCE(s.contact_number, '') LIKE ? OR COALESCE(s.telephone_number, '') LIKE ?
             OR COALESCE(s.whatsapp_number, '') LIKE ? OR COALESCE(s.vat_number, '') LIKE ?
-            OR CAST(s.id AS CHAR) LIKE ?)`
+            OR COALESCE(s.tin_number, '') LIKE ? OR CAST(s.id AS CHAR) LIKE ?)`
         );
         const like = `%${q}%`;
-        params.push(like, like, like, like, like, like, like, like);
+        params.push(like, like, like, like, like, like, like, like, like);
       }
       const whereClause = `WHERE ${conditions.join(" AND ")}`;
       const [countRows] = await pool.query<RowDataPacket[]>(
@@ -205,7 +205,7 @@ export const mastersModel = {
       const total = Number((countRows[0] as { c?: number })?.c ?? 0);
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT s.id, s.name, s.email, s.phone, s.contact_number, s.telephone_number,
-                s.whatsapp_number, s.vat_number, s.address, s.notes, s.is_active,
+                s.whatsapp_number, s.vat_number, s.tin_number, s.address, s.notes, s.is_active,
                 s.created_at, s.updated_at
          FROM suppliers s ${whereClause} ORDER BY s.id ASC LIMIT ? OFFSET ?`,
         [...params, opts.limit, opts.offset]
@@ -232,9 +232,9 @@ export const mastersModel = {
       const [r] = await pool.query<ResultSetHeader>(
         `INSERT INTO suppliers (
            name, email, phone, contact_number, telephone_number, whatsapp_number,
-           vat_number, address, notes, is_active
+           vat_number, tin_number, address, notes, is_active
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           p.name,
           p.email ?? null,
@@ -243,6 +243,7 @@ export const mastersModel = {
           p.telephone_number ?? null,
           p.whatsapp_number ?? null,
           p.vat_number ?? null,
+          p.tin_number ?? null,
           p.address ?? null,
           p.notes ?? null,
           p.is_active ?? true,
@@ -260,6 +261,7 @@ export const mastersModel = {
         telephone_number: string | null;
         whatsapp_number: string | null;
         vat_number: string | null;
+        tin_number: string | null;
         address: string | null;
         notes: string | null;
         is_active: boolean;
@@ -294,6 +296,10 @@ export const mastersModel = {
       if (patch.vat_number !== undefined) {
         fields.push("vat_number = ?");
         params.push(patch.vat_number);
+      }
+      if (patch.tin_number !== undefined) {
+        fields.push("tin_number = ?");
+        params.push(patch.tin_number);
       }
       if (patch.address !== undefined) {
         fields.push("address = ?");
@@ -409,6 +415,97 @@ export const mastersModel = {
       return softDelete("warehouses", id);
     },
   },
+
+  creditPeriods: {
+    async list(): Promise<RowDataPacket[]> {
+      const [rows] = await pool.query(
+        `SELECT * FROM credit_periods WHERE ${notDeletedClause()} ORDER BY days ASC, id ASC`
+      );
+      return rows as RowDataPacket[];
+    },
+
+    async listPaginated(opts: {
+      search?: string;
+      limit: number;
+      offset: number;
+    }): Promise<{ rows: RowDataPacket[]; total: number }> {
+      const q = opts.search?.trim();
+      const conditions = [notDeletedClause("cp")];
+      const params: unknown[] = [];
+      if (q) {
+        conditions.push(
+          "(cp.name LIKE ? OR CAST(cp.days AS CHAR) LIKE ? OR CAST(cp.id AS CHAR) LIKE ?)"
+        );
+        const like = `%${q}%`;
+        params.push(like, like, like);
+      }
+      const whereClause = `WHERE ${conditions.join(" AND ")}`;
+      const [countRows] = await pool.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS c FROM credit_periods cp ${whereClause}`,
+        params
+      );
+      const total = Number((countRows[0] as { c?: number })?.c ?? 0);
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT cp.id, cp.name, cp.days, cp.is_active, cp.created_at, cp.updated_at
+         FROM credit_periods cp ${whereClause}
+         ORDER BY cp.days ASC, cp.id ASC
+         LIMIT ? OFFSET ?`,
+        [...params, opts.limit, opts.offset]
+      );
+      return { rows, total };
+    },
+
+    async get(id: number): Promise<RowDataPacket | null> {
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT * FROM credit_periods WHERE id = ? AND ${notDeletedClause()} LIMIT 1`,
+        [id]
+      );
+      return rows[0] ?? null;
+    },
+
+    async create(p: {
+      name: string;
+      days: number;
+      is_active?: boolean;
+    }): Promise<number> {
+      const [r] = await pool.query<ResultSetHeader>(
+        `INSERT INTO credit_periods (name, days, is_active) VALUES (?, ?, ?)`,
+        [p.name, p.days, p.is_active ?? true]
+      );
+      return insertId(r);
+    },
+
+    async update(
+      id: number,
+      patch: Partial<{ name: string; days: number; is_active: boolean }>
+    ): Promise<void> {
+      const fields: string[] = [];
+      const params: unknown[] = [];
+      if (patch.name !== undefined) {
+        fields.push("name = ?");
+        params.push(patch.name);
+      }
+      if (patch.days !== undefined) {
+        fields.push("days = ?");
+        params.push(patch.days);
+      }
+      if (patch.is_active !== undefined) {
+        fields.push("is_active = ?");
+        params.push(patch.is_active);
+      }
+      if (!fields.length) return;
+      params.push(id);
+      await pool.query(
+        `UPDATE credit_periods SET ${fields.join(", ")} WHERE id = ? AND ${notDeletedClause()}`,
+        params
+      );
+    },
+
+    async delete(id: number): Promise<boolean> {
+      return softDelete("credit_periods", id);
+    },
+  },
+
   items: {
     async list(): Promise<RowDataPacket[]> {
       const [rows] = await pool.query(
@@ -970,7 +1067,7 @@ export const mastersModel = {
       const total = Number((countRows[0] as { c?: number })?.c ?? 0);
 
       const [rows] = await pool.query<RowDataPacket[]>(
-        `SELECT s.warehouse_id, s.item_id, s.quantity, i.sku, i.name, i.reorder_level, w.code AS warehouse_code, ${categorySelect} ${fromSql} ORDER BY s.warehouse_id ASC, s.item_id ASC LIMIT ? OFFSET ?`,
+        `SELECT s.warehouse_id, s.item_id, s.quantity, i.sku, i.name, i.unit_price, i.reorder_level, w.code AS warehouse_code, w.name AS warehouse_name, ${categorySelect} ${fromSql} ORDER BY s.warehouse_id ASC, s.item_id ASC LIMIT ? OFFSET ?`,
         [...params, opts.limit, opts.offset]
       );
       return { rows: rows as RowDataPacket[], total };

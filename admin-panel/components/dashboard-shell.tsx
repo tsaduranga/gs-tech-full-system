@@ -11,6 +11,7 @@ import {
   BarChart3,
   Boxes,
   Building2,
+  CalendarClock,
   ChevronDown,
   ClipboardList,
   CornerDownLeft,
@@ -90,6 +91,7 @@ const MASTER_DATA_CHILDREN: readonly NavLeaf[] = [
   { href: "/dashboard/subcategories", label: "Subcategories", icon: Layers },
   { href: "/dashboard/customer-warranties", label: "Customer Warranties", icon: Shield },
   { href: "/dashboard/supplier-warranties", label: "Supplier Warranties", icon: LifeBuoy },
+  { href: "/dashboard/credit-periods", label: "Credit Periods", icon: CalendarClock },
   { href: "/dashboard/items", label: "Items", icon: Package },
 ] as const;
 

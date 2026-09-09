@@ -32,7 +32,11 @@ export type PurchaseOrderDetail = {
   supplier_name: string;
   supplier_address?: string | null;
   supplier_vat_number?: string | null;
+  supplier_tin_number?: string | null;
   supplier_telephone?: string | null;
+  credit_period_id?: number | null;
+  credit_period_name?: string | null;
+  credit_period_days?: number | null;
   order_number: string;
   status: string;
   ordered_at: string;
@@ -207,6 +211,14 @@ export async function downloadPurchaseOrderPdf(
     drawKeyValueBox(doc, MARGIN + halfW + 2, y, halfW, [
       ["PO No", po.order_number],
       ["Status", po.status],
+      [
+        "Credit Period",
+        po.credit_period_name
+          ? `${po.credit_period_name}${
+              po.credit_period_days != null ? ` (${po.credit_period_days} days)` : ""
+            }`
+          : "",
+      ],
       ["Prepared By", po.created_by_username ?? ""],
     ])
   );
@@ -214,7 +226,8 @@ export async function downloadPurchaseOrderPdf(
 
   const partyH = Math.max(
     drawPartyBox(doc, MARGIN, y, halfW, "Supplier Details", [
-      ["TIN", po.supplier_vat_number ?? ""],
+      ["TIN", po.supplier_tin_number?.trim() || po.supplier_vat_number || ""],
+      ["VAT", po.supplier_vat_number ?? ""],
       ["Name", po.supplier_name],
       ["Address", po.supplier_address ?? ""],
       ["Telephone No", po.supplier_telephone ?? ""],

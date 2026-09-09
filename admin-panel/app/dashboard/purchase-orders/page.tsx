@@ -78,6 +78,7 @@ type LineFieldErrors = {
 
 type FormErrors = {
   supplier?: string;
+  creditPeriod?: string;
   orderedAt?: string;
   linesGeneral?: string;
   deliveryCharges?: string;
@@ -92,6 +93,7 @@ function fieldErrorCls() {
 
 function validatePurchaseOrderForm(
   supplierId: number,
+  creditPeriodId: number,
   orderedAt: string,
   lines: LineDraft[],
   deliveryCharges: string
@@ -101,6 +103,11 @@ function validatePurchaseOrderForm(
 
   if (supplierId < 1) {
     errors.supplier = "Supplier is required";
+    hasError = true;
+  }
+
+  if (creditPeriodId < 1) {
+    errors.creditPeriod = "Credit period is required";
     hasError = true;
   }
 
@@ -185,6 +192,7 @@ const underlineInputClass = cn(
 
 export default function PurchaseOrdersPage() {
   const [supplierId, setSupplierId] = useState(0);
+  const [creditPeriodId, setCreditPeriodId] = useState(0);
   const [orderedAt, setOrderedAt] = useState(() =>
     new Date().toISOString().slice(0, 10)
   );
@@ -194,8 +202,12 @@ export default function PurchaseOrdersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [suppliersLoading, setSuppliersLoading] = useState(true);
   const [itemsLoading, setItemsLoading] = useState(true);
+  const [creditPeriodsLoading, setCreditPeriodsLoading] = useState(true);
   const [suppliers, setSuppliers] = useState<SupplierBrief[]>([]);
   const [items, setItems] = useState<ItemBrief[]>([]);
+  const [creditPeriodOptions, setCreditPeriodOptions] = useState<
+    { value: number; label: string }[]
+  >([]);
   const [supplierWarrantyOptions, setSupplierWarrantyOptions] = useState<
     { value: number; label: string }[]
   >([]);
@@ -211,13 +223,17 @@ export default function PurchaseOrdersPage() {
     async function loadMeta() {
       setSuppliersLoading(true);
       setItemsLoading(true);
-      const [supRes, itRes, settingsRes, warrantyRes] = await Promise.all([
+      setCreditPeriodsLoading(true);
+      const [supRes, itRes, settingsRes, warrantyRes, cpRes] = await Promise.all([
         apiJson<{ items: SupplierBrief[] }>(
           "/suppliers?page=1&pageSize=500"
         ),
         apiJson<{ items: ItemBrief[] }>("/items?page=1&pageSize=500"),
         apiJson<{ vat_rate: number }>("/settings"),
         apiJson<WarrantyPickerRow[]>("/warranties/picker?type=supplier"),
+        apiJson<{
+          items: { id: number; name: string; days: number; is_active: boolean | number }[];
+        }>("/credit-periods?page=1&pageSize=500"),
       ]);
       if (cancelled) return;
       if (supRes.ok && Array.isArray(supRes.data?.items))
@@ -239,9 +255,22 @@ export default function PurchaseOrdersPage() {
       } else {
         setSupplierWarrantyOptions([]);
       }
+      if (cpRes.ok && Array.isArray(cpRes.data?.items)) {
+        setCreditPeriodOptions(
+          cpRes.data.items
+            .filter((cp) => Boolean(cp.is_active))
+            .map((cp) => ({
+              value: cp.id,
+              label: `${cp.name} (${cp.days} day${cp.days === 1 ? "" : "s"})`,
+            }))
+        );
+      } else {
+        setCreditPeriodOptions([]);
+      }
       setSuppliersLoading(false);
       setItemsLoading(false);
       setWarrantyPickerLoading(false);
+      setCreditPeriodsLoading(false);
     }
     void loadMeta();
     return () => {
@@ -289,6 +318,7 @@ export default function PurchaseOrdersPage() {
     setMsg(null);
     const validationErrors = validatePurchaseOrderForm(
       supplierId,
+      creditPeriodId,
       orderedAt,
       lines,
       deliveryCharges
@@ -324,6 +354,7 @@ export default function PurchaseOrdersPage() {
       method: "POST",
       body: JSON.stringify({
         supplier_id: supplierId,
+        credit_period_id: creditPeriodId,
         ordered_at: orderedAt,
         lines: parsedLines,
       }),
@@ -335,6 +366,7 @@ export default function PurchaseOrdersPage() {
     }
     setMsg(`Created PO id ${res.data?.id ?? "—"}`);
     setSupplierId(0);
+    setCreditPeriodId(0);
     setOrderedAt(new Date().toISOString().slice(0, 10));
     setLines([newLine()]);
     setDeliveryCharges("0");
@@ -380,34 +412,66 @@ export default function PurchaseOrdersPage() {
         <CardContent>
           <form onSubmit={create} className="flex flex-col gap-8">
             <div className="grid gap-8 sm:grid-cols-2">
-              <div className="min-w-0 space-y-2 sm:col-span-2 xl:col-span-1">
-                <Label htmlFor="po-supplier">
-                  Supplier<span className="text-destructive">*</span>
-                </Label>
-                <CatalogIdCombobox
-                  id="po-supplier"
-                  items={suppliers.map((s) => ({
-                    id: s.id,
-                    name: `${s.name} (${s.id})`,
-                  }))}
-                  valueId={supplierId}
-                  onValueChange={(id) => {
-                    setSupplierId(id);
-                    setErrors((prev) => ({ ...prev, supplier: undefined }));
-                    setMsg(null);
-                  }}
-                  placeholder="Search supplier…"
-                  loading={suppliersLoading}
-                  emptyListHint="No suppliers"
-                  emptyFilterHint="No matching suppliers"
-                  variant="underline"
-                  invalid={Boolean(errors.supplier)}
-                />
-                {errors.supplier ? (
-                  <p className={fieldErrorCls()} role="alert">
-                    {errors.supplier}
-                  </p>
-                ) : null}
+              <div className="min-w-0 space-y-6 sm:col-span-2 xl:col-span-1">
+                <div className="space-y-2">
+                  <Label htmlFor="po-supplier">
+                    Supplier<span className="text-destructive">*</span>
+                  </Label>
+                  <CatalogIdCombobox
+                    id="po-supplier"
+                    items={suppliers.map((s) => ({
+                      id: s.id,
+                      name: `${s.name} (${s.id})`,
+                    }))}
+                    valueId={supplierId}
+                    onValueChange={(id) => {
+                      setSupplierId(id);
+                      setErrors((prev) => ({ ...prev, supplier: undefined }));
+                      setMsg(null);
+                    }}
+                    placeholder="Search supplier…"
+                    loading={suppliersLoading}
+                    emptyListHint="No suppliers"
+                    emptyFilterHint="No matching suppliers"
+                    variant="underline"
+                    invalid={Boolean(errors.supplier)}
+                  />
+                  {errors.supplier ? (
+                    <p className={fieldErrorCls()} role="alert">
+                      {errors.supplier}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="po-credit-period">
+                    Credit period<span className="text-destructive">*</span>
+                  </Label>
+                  <SearchableNumPicker
+                    id="po-credit-period"
+                    options={creditPeriodOptions}
+                    valueId={creditPeriodId}
+                    onValueChange={(id) => {
+                      setCreditPeriodId(id);
+                      setErrors((prev) => ({ ...prev, creditPeriod: undefined }));
+                      setMsg(null);
+                    }}
+                    placeholder={
+                      creditPeriodsLoading
+                        ? "Loading credit periods…"
+                        : "Select credit period…"
+                    }
+                    loading={creditPeriodsLoading}
+                    emptyListHint="No credit periods — add under Master Data → Credit Periods"
+                    emptyFilterHint="No matching credit periods"
+                    variant="underline"
+                    invalid={Boolean(errors.creditPeriod)}
+                  />
+                  {errors.creditPeriod ? (
+                    <p className={fieldErrorCls()} role="alert">
+                      {errors.creditPeriod}
+                    </p>
+                  ) : null}
+                </div>
               </div>
               <div className="min-w-0 space-y-2 sm:col-span-2 xl:col-span-1">
                 <Label htmlFor="po-date">

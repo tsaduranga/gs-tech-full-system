@@ -12,7 +12,8 @@ export type SoftDeleteTable =
   | "items"
   | "catalog_categories"
   | "catalog_subcategories"
-  | "warranties";
+  | "warranties"
+  | "credit_periods";
 
 const TABLES_WITH_IS_ACTIVE = new Set<SoftDeleteTable>([
   "users",
@@ -23,6 +24,7 @@ const TABLES_WITH_IS_ACTIVE = new Set<SoftDeleteTable>([
   "catalog_categories",
   "catalog_subcategories",
   "warranties",
+  "credit_periods",
 ]);
 
 /** Columns with DB UNIQUE constraints — suffix on soft delete to free the slot. */
@@ -35,6 +37,7 @@ const UNIQUE_COLUMNS: Partial<Record<SoftDeleteTable, readonly string[]>> = {
   catalog_categories: ["name"],
   catalog_subcategories: ["name"],
   warranties: ["name"],
+  credit_periods: ["name"],
 };
 
 /** SQL fragment: `alias.deleted_at IS NULL` or `deleted_at IS NULL`. */

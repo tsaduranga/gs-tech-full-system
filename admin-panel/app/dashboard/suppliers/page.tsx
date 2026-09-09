@@ -60,6 +60,7 @@ type SupplierRow = {
   telephone_number: string | null;
   whatsapp_number: string | null;
   vat_number: string | null;
+  tin_number: string | null;
   address: string | null;
   notes: string | null;
   is_active: number | boolean;
@@ -83,6 +84,7 @@ type SupplierDetailResponse = {
   telephone_number: string | null;
   whatsapp_number: string | null;
   vat_number: string | null;
+  tin_number: string | null;
   address: string | null;
   notes: string | null;
   is_active: boolean;
@@ -131,6 +133,14 @@ const supplierFormSchema = z.object({
       .min(10, "VAT number must be 10–30 characters")
       .max(30, "VAT number must be 10–30 characters"),
   ]),
+  tin_number: z.union([
+    z.literal(""),
+    z
+      .string()
+      .trim()
+      .min(5, "TIN number must be 5–30 characters")
+      .max(30, "TIN number must be 5–30 characters"),
+  ]),
   address: z.string().trim().max(512).optional(),
   notes: z.string().trim().max(16000).optional(),
   is_active: z.boolean(),
@@ -162,6 +172,7 @@ export default function SuppliersPage() {
       telephone_number: "",
       whatsapp_number: "",
       vat_number: "",
+      tin_number: "",
       address: "",
       notes: "",
       is_active: true,
@@ -241,6 +252,7 @@ export default function SuppliersPage() {
     telephone_number?: string | null;
     whatsapp_number?: string | null;
     vat_number?: string | null;
+    tin_number?: string | null;
     address?: string | null;
     notes?: string | null;
     is_active: number | boolean;
@@ -252,6 +264,7 @@ export default function SuppliersPage() {
       telephone_number: formatPhoneInput(row.telephone_number ?? ""),
       whatsapp_number: formatPhoneInput(row.whatsapp_number ?? ""),
       vat_number: row.vat_number ?? "",
+      tin_number: row.tin_number ?? "",
       address: row.address ?? "",
       notes: row.notes ?? "",
       is_active: Boolean(row.is_active),
@@ -272,6 +285,7 @@ export default function SuppliersPage() {
   function toApiPayload(data: SupplierFormValues) {
     const emailTrim = data.email.trim();
     const vatTrim = data.vat_number.trim();
+    const tinTrim = data.tin_number.trim();
     return {
       name: data.name.trim(),
       email: emailTrim === "" ? null : emailTrim,
@@ -283,6 +297,7 @@ export default function SuppliersPage() {
         ? data.whatsapp_number.trim()
         : null,
       vat_number: vatTrim === "" ? null : vatTrim,
+      tin_number: tinTrim === "" ? null : tinTrim,
       address: data.address?.trim() ? data.address.trim() : null,
       notes: data.notes?.trim() ? data.notes.trim() : null,
       is_active: data.is_active,
@@ -440,6 +455,7 @@ export default function SuppliersPage() {
                 <TableHead className="min-w-[140px]">Email</TableHead>
                 <TableHead>Contact</TableHead>
                 <TableHead className="min-w-[120px]">VAT No.</TableHead>
+                <TableHead className="min-w-[120px]">TIN No.</TableHead>
                 <TableHead className="w-[72px]">Active</TableHead>
                 <TableHead className="w-[100px]">Updated</TableHead>
                 {canEdit ? (
@@ -450,14 +466,14 @@ export default function SuppliersPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="h-24 text-center">
+                  <TableCell colSpan={9} className="h-24 text-center">
                     <Loader2Icon className="mx-auto size-6 animate-spin text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               ) : list.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={9}
                     className="h-24 text-center text-muted-foreground"
                   >
                     No rows to display.
@@ -476,6 +492,9 @@ export default function SuppliersPage() {
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {row.vat_number ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-sm">
+                      {row.tin_number ?? "—"}
                     </TableCell>
                     <TableCell>{Boolean(row.is_active) ? "Yes" : "No"}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">
@@ -694,6 +713,23 @@ export default function SuppliersPage() {
                   {formState.errors.vat_number?.message ? (
                     <p className={fieldErrorCls()} role="alert">
                       {String(formState.errors.vat_number.message)}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="grid gap-2">
+                  <Label htmlFor="sup-tin">Supplier TIN number</Label>
+                  <Input
+                    id="sup-tin"
+                    aria-invalid={Boolean(formState.errors.tin_number)}
+                    className={cn(formState.errors.tin_number && "border-destructive")}
+                    placeholder="5–30 characters"
+                    maxLength={30}
+                    {...register("tin_number")}
+                  />
+                  {formState.errors.tin_number?.message ? (
+                    <p className={fieldErrorCls()} role="alert">
+                      {String(formState.errors.tin_number.message)}
                     </p>
                   ) : null}
                 </div>

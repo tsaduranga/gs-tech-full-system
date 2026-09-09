@@ -63,6 +63,7 @@ export const PERMISSION_NAV_SECTIONS: readonly PermissionNavSection[] = [
       { key: "subcategories", label: "Subcategories" },
       { key: "customer_warranties", label: "Customer Warranties" },
       { key: "supplier_warranties", label: "Supplier Warranties" },
+      { key: "credit_periods", label: "Credit Periods" },
       { key: "items", label: "Items" },
     ],
   },

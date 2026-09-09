@@ -199,6 +199,20 @@ export function PurchaseOrderDetailDialog({
                   <DetailRow label="PO No" value={detail.order_number} />
                   <DetailRow label="Status" value={<StatusBadge status={detail.status} />} />
                   <DetailRow
+                    label="Credit period"
+                    value={
+                      detail.credit_period_name
+                        ? `${detail.credit_period_name}${
+                            detail.credit_period_days != null
+                              ? ` (${detail.credit_period_days} day${
+                                  Number(detail.credit_period_days) === 1 ? "" : "s"
+                                })`
+                              : ""
+                          }`
+                        : "—"
+                    }
+                  />
+                  <DetailRow
                     label="Prepared by"
                     value={detail.created_by_username ?? "—"}
                   />
@@ -207,7 +221,15 @@ export function PurchaseOrderDetailDialog({
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <DetailBox title="Supplier details">
-                  <DetailRow label="TIN" value={detail.supplier_vat_number ?? "—"} />
+                  <DetailRow
+                    label="TIN"
+                    value={
+                      detail.supplier_tin_number?.trim() ||
+                      detail.supplier_vat_number ||
+                      "—"
+                    }
+                  />
+                  <DetailRow label="VAT" value={detail.supplier_vat_number ?? "—"} />
                   <DetailRow label="Name" value={detail.supplier_name} />
                   <DetailRow label="Address" value={detail.supplier_address ?? "—"} />
                   <DetailRow

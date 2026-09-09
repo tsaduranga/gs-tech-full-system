@@ -25,6 +25,10 @@ export const ROUTE_PERMISSIONS: Record<string, RoutePermissionConfig> = {
     view: "supplier_warranties.read",
     edit: "supplier_warranties.write",
   },
+  "/dashboard/credit-periods": {
+    view: "credit_periods.read",
+    edit: "credit_periods.write",
+  },
   "/dashboard/warranties": {
     view: "customer_warranties.read",
     edit: "customer_warranties.write",

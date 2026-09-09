@@ -163,12 +163,15 @@ LEFT JOIN users u ON u.id = po.created_by`;
       const [rows] = await pool.query<RowDataPacket[]>(
         `SELECT po.id, po.supplier_id, s.name AS supplier_name,
             s.address AS supplier_address, s.vat_number AS supplier_vat_number,
+            s.tin_number AS supplier_tin_number,
             COALESCE(s.telephone_number, s.contact_number, s.phone) AS supplier_telephone,
+            po.credit_period_id, cp.name AS credit_period_name, cp.days AS credit_period_days,
             po.order_number, po.status, po.ordered_at, po.notes,
             po.created_by, po.created_at, po.updated_at,
             u.username AS created_by_username
          FROM purchase_orders po
          JOIN suppliers s ON s.id = po.supplier_id
+         LEFT JOIN credit_periods cp ON cp.id = po.credit_period_id AND ${notDeletedClause("cp")}
          LEFT JOIN users u ON u.id = po.created_by
          WHERE po.id = ?
          LIMIT 1`,
@@ -180,6 +183,7 @@ LEFT JOIN users u ON u.id = po.created_by`;
     },
     async create(input: {
       supplierId: number;
+      creditPeriodId: number;
       orderedAt: string;
       lines: {
         itemId: number;
@@ -192,10 +196,25 @@ LEFT JOIN users u ON u.id = po.created_by`;
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
+
+        const [[cp]] = await conn.query<RowDataPacket[]>(
+          `SELECT id FROM credit_periods
+           WHERE id = ? AND is_active = 1 AND ${notDeletedClause()}
+           LIMIT 1`,
+          [input.creditPeriodId]
+        );
+        if (!cp) throw new Error("Invalid or inactive credit period");
+
         const [r] = await conn.query<ResultSetHeader>(
-          `INSERT INTO purchase_orders (supplier_id, order_number, status, ordered_at, created_by)
-           VALUES (?, ?, 'OPEN', ?, ?)`,
-          [input.supplierId, nextOrderNumber("PO"), input.orderedAt, input.userId]
+          `INSERT INTO purchase_orders (supplier_id, credit_period_id, order_number, status, ordered_at, created_by)
+           VALUES (?, ?, ?, 'OPEN', ?, ?)`,
+          [
+            input.supplierId,
+            input.creditPeriodId,
+            nextOrderNumber("PO"),
+            input.orderedAt,
+            input.userId,
+          ]
         );
         const poId = r.insertId as number;
         for (const ln of input.lines) {
@@ -376,8 +395,9 @@ LEFT JOIN users u ON u.id = q.created_by`;
     },
     async lines(qid: number): Promise<RowDataPacket[]> {
       const [rows] = await pool.query(
-        `SELECT ql.*, i.sku FROM quotation_lines ql
-         JOIN items i ON i.id = ql.item_id WHERE ql.quotation_id = ?`,
+        `SELECT ql.*, i.sku, i.name AS item_name FROM quotation_lines ql
+         JOIN items i ON i.id = ql.item_id WHERE ql.quotation_id = ?
+         ORDER BY ql.id ASC`,
         [qid]
       );
       return rows as RowDataPacket[];
@@ -386,7 +406,12 @@ LEFT JOIN users u ON u.id = q.created_by`;
       customerId: number;
       validUntil: string | null;
       notes: string | null;
-      lines: { itemId: number; qty: number; unitPrice: number }[];
+      lines: {
+        itemId: number;
+        description?: string | null;
+        qty: number;
+        unitPrice: number;
+      }[];
       userId: number | null;
     }): Promise<number> {
       const conn = await pool.getConnection();
@@ -418,10 +443,11 @@ LEFT JOIN users u ON u.id = q.created_by`;
         const qId = r.insertId as number;
         for (let i = 0; i < input.lines.length; i++) {
           const ln = input.lines[i];
+          const desc = ln.description?.trim() || null;
           await conn.query(
-            `INSERT INTO quotation_lines (quotation_id, item_id, qty, unit_price, line_total)
-             VALUES (?, ?, ?, ?, ?)`,
-            [qId, ln.itemId, ln.qty, ln.unitPrice, lineTotals[i]]
+            `INSERT INTO quotation_lines (quotation_id, item_id, description, qty, unit_price, line_total)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            [qId, ln.itemId, desc, ln.qty, ln.unitPrice, lineTotals[i]]
           );
         }
         await conn.commit();
